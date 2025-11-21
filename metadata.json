@@ -1,0 +1,5 @@
+{
+  "name": "LMS Prototype",
+  "description": "An LMS prototype with Supabase OTP authentication, user/admin dashboards, and role-based routing.",
+  "requestFramePermissions": []
+}
