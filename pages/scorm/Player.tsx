@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 
@@ -14,6 +14,8 @@ const ScormPlayer: React.FC = () => {
   const [iframeSrc, setIframeSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // --- Inject SCORM API Shim ---
   useEffect(() => {
@@ -29,6 +31,8 @@ const ScormPlayer: React.FC = () => {
       }
       // @ts-ignore
       delete window.API;
+      // @ts-ignore
+      delete window.API_1484_11;
     };
   }, []);
 
@@ -103,6 +107,28 @@ const ScormPlayer: React.FC = () => {
     fetchModule();
   }, [id]);
 
+  const handleIFrameLoad = () => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    // Access the contentWindow. This works because we are on the same origin via the proxy.
+    const iframeWindow = iframe.contentWindow;
+    if (!iframeWindow) return;
+
+    const parentWin = window as any;
+    const childWin = iframeWindow as any;
+
+    // Explicitly inject the API object if it exists in parent but not in child
+    if (parentWin.API && !childWin.API) {
+      childWin.API = parentWin.API;
+      console.log("[MyLMS] Injected SCORM 1.2 API into iframe");
+    }
+    if (parentWin.API_1484_11 && !childWin.API_1484_11) {
+      childWin.API_1484_11 = parentWin.API_1484_11;
+      console.log("[MyLMS] Injected SCORM 2004 API into iframe");
+    }
+  };
+
   if (loading) {
     return (
       <div className="text-center p-10">
@@ -141,11 +167,13 @@ const ScormPlayer: React.FC = () => {
       
       <div className="w-full bg-gray-200 rounded-lg overflow-hidden shadow-md">
          <iframe
+            ref={iframeRef}
             src={iframeSrc}
+            onLoad={handleIFrameLoad}
             title={module.title}
             style={{ width: "100%", height: "80vh", border: "none" }}
             allowFullScreen
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation-by-user-activation"
         />
       </div>
     </div>
