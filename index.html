@@ -120,6 +120,9 @@
 </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
+  <!-- SCORM API shim: must load before the React app -->
+  <script src="/scorm-api-1_2.js"></script>
+
   <div id="root"></div>
   <script type="module" src="/index.tsx"></script>
 </body>

@@ -1,97 +1,108 @@
+// public/scorm-api-1_2.js
+// Minimal SCORM 1.2 API shim so Articulate/Rise thinks it's in an LMS.
+// NOTE: This only stores values in memory for now – no real tracking yet.
 
-if (typeof window !== "undefined") {
-  if (!window.API) {
-    (function() {
-      // --- Internal State ---
-      var cmiData = {
-        "cmi.core.lesson_status": "not attempted",
-        "cmi.core.score.raw": "",
-        "cmi.suspend_data": ""
-      };
-      var initialized = false;
-      var lastError = "0";
-
-      // --- Helper Functions ---
-      function log(method, ...args) {
-        console.log("[SCORM] " + method, ...args);
-      }
-
-      // --- API Definition ---
-      window.API = {
-        LMSInitialize: function(param) {
-          log("LMSInitialize", param);
-          if (initialized) {
-            lastError = "101"; // General Exception (often used for already initialized)
-            return "false";
-          }
-          initialized = true;
-          lastError = "0";
-          return "true";
-        },
-
-        LMSFinish: function(param) {
-          log("LMSFinish", param, "Final Data:", cmiData);
-          if (!initialized) {
-            lastError = "301"; // Not initialized
-            return "false";
-          }
-          initialized = false;
-          lastError = "0";
-          return "true";
-        },
-
-        LMSGetValue: function(element) {
-          log("LMSGetValue", element);
-          if (!initialized) {
-            lastError = "301";
-            return "";
-          }
-          lastError = "0";
-          return cmiData[element] || "";
-        },
-
-        LMSSetValue: function(element, value) {
-          log("LMSSetValue", element, value);
-          if (!initialized) {
-            lastError = "301";
-            return "false";
-          }
-          cmiData[element] = value;
-          lastError = "0";
-          return "true";
-        },
-
-        LMSCommit: function(param) {
-          log("LMSCommit", param, "Current Data:", cmiData);
-          if (!initialized) {
-            lastError = "301";
-            return "false";
-          }
-          lastError = "0";
-          return "true";
-        },
-
-        LMSGetLastError: function() {
-          log("LMSGetLastError returning", lastError);
-          return lastError;
-        },
-
-        LMSGetErrorString: function(errorCode) {
-          log("LMSGetErrorString", errorCode);
-          var code = String(errorCode);
-          if (code === "0") return "No error";
-          if (code === "101") return "General exception (Already initialized)";
-          if (code === "301") return "Not initialized";
-          return "Unknown error";
-        },
-
-        LMSGetDiagnostic: function(errorCode) {
-          log("LMSGetDiagnostic", errorCode);
-          return "Diagnostic info for code: " + errorCode;
-        }
-      };
-
-      console.log("[SCORM] SCORM 1.2 API shim initialised on window.API");
-    })();
+(function () {
+  // If an API already exists, don't overwrite it
+  if (window.API) {
+    return;
   }
-}
+
+  console.log("[MyLMS] Injecting SCORM 1.2 API shim");
+
+  const cmi = {};
+  let initialized = false;
+  let finished = false;
+  let lastError = "0";
+
+  function setError(code) {
+    lastError = String(code || "0");
+  }
+
+  function LMSInitialize(_param) {
+    console.log("[SCORM] LMSInitialize");
+    initialized = true;
+    finished = false;
+    setError("0");
+    return "true";
+  }
+
+  function LMSFinish(_param) {
+    console.log("[SCORM] LMSFinish");
+    if (!initialized) {
+      setError("301"); // Not initialized
+      return "false";
+    }
+    finished = true;
+    setError("0");
+    return "true";
+  }
+
+  function LMSGetValue(element) {
+    const key = String(element || "");
+    const value = cmi[key] ?? "";
+    console.log("[SCORM] LMSGetValue", key, "=>", value);
+    setError("0");
+    return String(value);
+  }
+
+  function LMSSetValue(element, value) {
+    const key = String(element || "");
+    const val = String(value ?? "");
+    console.log("[SCORM] LMSSetValue", key, "=", val);
+    cmi[key] = val;
+    setError("0");
+    return "true";
+  }
+
+  function LMSCommit(_param) {
+    console.log("[SCORM] LMSCommit (no-op for now)");
+    // Later we’ll push cmi to Supabase here.
+    setError("0");
+    return "true";
+  }
+
+  function LMSGetLastError() {
+    return lastError;
+  }
+
+  function LMSGetErrorString(errorCode) {
+    const map = {
+      "0": "No error",
+      "101": "General exception",
+      "201": "Invalid argument error",
+      "301": "Not initialized",
+    };
+    return map[String(errorCode)] || "Unknown error";
+  }
+
+  function LMSGetDiagnostic(_errorCode) {
+    return "";
+  }
+
+  // Expose classic SCORM 1.2 API object
+  window.API = {
+    LMSInitialize,
+    LMSFinish,
+    LMSGetValue,
+    LMSSetValue,
+    LMSCommit,
+    LMSGetLastError,
+    LMSGetErrorString,
+    LMSGetDiagnostic,
+  };
+
+  // Also define a very thin 2004-style API for packages that look for it
+  if (!window.API_1484_11) {
+    window.API_1484_11 = {
+      Initialize: LMSInitialize,
+      Terminate: LMSFinish,
+      GetValue: LMSGetValue,
+      SetValue: LMSSetValue,
+      Commit: LMSCommit,
+      GetLastError: LMSGetLastError,
+      GetErrorString: LMSGetErrorString,
+      GetDiagnostic: LMSGetDiagnostic,
+    };
+  }
+})();
