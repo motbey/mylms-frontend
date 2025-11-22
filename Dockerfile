@@ -1,36 +1,38 @@
-{
-  "name": "mylms-prototype",
-  "version": "1.0.0",
-  "private": true,
+# ---------- Build stage ----------
+FROM node:20-alpine AS build
 
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "start": "node server.js"
-  },
+# Create app directory
+WORKDIR /app
 
-  "dependencies": {
-    "express": "^4.18.2",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-router-dom": "^7.9.5",
-    "@supabase/supabase-js": "^2.78.0",
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm install
 
-    "@hello-pangea/dnd": "^18.0.1",
+# Copy the rest of the source
+COPY . .
 
-    "quill": "^2.0.0",
-    "react-easy-crop": "^5.0.7",
-    "pica": "^9.0.1",
-    "lucide-react": "^0.417.0"
-  },
+# Build the Vite app
+RUN npm run build
 
-  "devDependencies": {
-    "vite": "^5.2.0",
-    "@vitejs/plugin-react": "^4.2.0",
-    "typescript": "^5.3.3"
-  },
+# ---------- Runtime stage ----------
+FROM node:20-alpine AS runtime
 
-  "engines": {
-    "node": ">=18.x"
-  }
-}
+WORKDIR /app
+
+# Only install production deps
+COPY package*.json ./
+RUN npm install --omit=dev
+
+# Copy built frontend and server file
+COPY --from=build /app/dist ./dist
+COPY server.js ./
+COPY index.html ./
+COPY tsconfig.json ./
+COPY vite.config.ts ./
+COPY types.ts ./
+
+ENV NODE_ENV=production
+ENV PORT=8080
+EXPOSE 8080
+
+CMD ["node", "server.js"]
