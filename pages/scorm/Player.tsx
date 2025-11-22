@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
+import { Loader } from 'lucide-react';
 
 interface ScormModule {
   id: string;
@@ -13,6 +14,7 @@ const ScormPlayer: React.FC = () => {
   const [module, setModule] = useState<ScormModule | null>(null);
   const [iframeSrc, setIframeSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [iframeLoading, setIframeLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -108,6 +110,9 @@ const ScormPlayer: React.FC = () => {
   }, [id]);
 
   const handleIFrameLoad = () => {
+    // Mark iframe as loaded to remove spinner
+    setIframeLoading(false);
+
     const iframe = iframeRef.current;
     if (!iframe) return;
 
@@ -132,7 +137,7 @@ const ScormPlayer: React.FC = () => {
   if (loading) {
     return (
       <div className="text-center p-10">
-        <p className="text-gray-600">Loading SCORM module...</p>
+        <p className="text-gray-600">Loading SCORM module data...</p>
       </div>
     );
   }
@@ -165,13 +170,20 @@ const ScormPlayer: React.FC = () => {
             </div>
         </div>
       
-      <div className="w-full bg-gray-200 rounded-lg overflow-hidden shadow-md">
+      <div className="w-full bg-gray-200 rounded-lg overflow-hidden shadow-md relative min-h-[400px]">
+         {iframeLoading && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 z-10">
+                <Loader className="h-10 w-10 text-secondary animate-spin mb-3" />
+                <p className="text-gray-600 font-medium animate-pulse">Loading course content...</p>
+            </div>
+         )}
          <iframe
             ref={iframeRef}
             src={iframeSrc}
             onLoad={handleIFrameLoad}
             title={module.title}
             style={{ width: "100%", height: "80vh", border: "none" }}
+            className={`w-full h-full ${iframeLoading ? 'opacity-0' : 'opacity-100'} transition-opacity duration-500`}
             allowFullScreen
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation-by-user-activation"
         />
