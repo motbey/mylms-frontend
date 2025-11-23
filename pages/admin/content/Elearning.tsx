@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import FavoritesSection from '../../../components/FavoritesSection';
 import { supabase } from '../../../lib/supabaseClient';
+import { Upload } from 'lucide-react';
 
 // --- Types ---
 interface ScormModule {
@@ -11,6 +12,7 @@ interface ScormModule {
   duration_minutes: number | null;
   launch_url: string;
   created_at: string;
+  description: string | null;
 }
 
 // --- Reusable Toast Component ---
@@ -92,7 +94,7 @@ const AdminElearning: React.FC = () => {
     try {
       const { data, error: fetchError } = await supabase
         .from('modules')
-        .select('id, title, type, duration_minutes, launch_url, created_at')
+        .select('id, title, type, duration_minutes, launch_url, created_at, description')
         .eq('type', 'scorm')
         .order('created_at', { ascending: false });
 
@@ -229,9 +231,10 @@ const AdminElearning: React.FC = () => {
         <div className="flex flex-col sm:flex-row gap-3">
              <Link
               to="/admin/content/upload-scorm-s3"
-              className="px-6 py-2 text-center bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700 transition-colors whitespace-nowrap"
+              className="px-6 py-2 text-center bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700 transition-colors whitespace-nowrap flex items-center gap-2"
             >
-              Upload to AWS S3
+              <Upload size={18} />
+              Upload SCORM
             </Link>
         </div>
       </div>
@@ -254,7 +257,7 @@ const AdminElearning: React.FC = () => {
                             <th className="py-2 pr-4 font-semibold text-gray-700">Title</th>
                             <th className="py-2 pr-4 font-semibold text-gray-700">Duration (minutes)</th>
                             <th className="py-2 pr-4 font-semibold text-gray-700">Created At</th>
-                            <th className="py-2 pr-4 font-semibold text-gray-700">Launch URL</th>
+                            <th className="py-2 pr-4 font-semibold text-gray-700">Description</th>
                             <th className="py-2 pl-4 font-semibold text-gray-700 text-right">Actions</th>
                         </tr>
                     </thead>
@@ -264,7 +267,9 @@ const AdminElearning: React.FC = () => {
                                 <td className="py-2 pr-4 font-medium text-gray-800">{mod.title}</td>
                                 <td className="py-2 pr-4 text-gray-600">{mod.duration_minutes ?? '—'}</td>
                                 <td className="py-2 pr-4 text-gray-600">{formatDate(mod.created_at)}</td>
-                                <td className="py-2 pr-4 text-gray-600 truncate max-w-xs">{mod.launch_url}</td>
+                                <td className="py-2 pr-4 text-gray-600 truncate max-w-xs" title={mod.description || ''}>
+                                    {mod.description || <span className="text-gray-400 italic">No description</span>}
+                                </td>
                                 <td className="py-2 pl-4 text-right">
                                     <Link
                                         to={`/scorm/${mod.id}`}

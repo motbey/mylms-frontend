@@ -25,6 +25,7 @@ const UploadScormToS3: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [durationMinutes, setDurationMinutes] = useState('');
+  const [description, setDescription] = useState('');
   
   const [isUploading, setIsUploading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -121,6 +122,7 @@ const UploadScormToS3: React.FC = () => {
       const finalizeBody = {
         title: trimmedTitle,
         duration_minutes: durationValue,
+        description: description.trim() || null,
         zip_path: s3Key,
       };
 
@@ -185,6 +187,7 @@ const UploadScormToS3: React.FC = () => {
       setFile(null);
       setTitle("");
       setDurationMinutes("");
+      setDescription("");
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -235,6 +238,21 @@ const UploadScormToS3: React.FC = () => {
               min="0"
               className="block w-full text-sm text-slate-900 border border-slate-300 rounded-md p-2 placeholder:text-slate-400 focus:ring-2 focus:ring-secondary focus:border-secondary"
               placeholder="e.g., 30"
+              disabled={isUploading}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="description" className="block text-sm font-medium text-slate-700 mb-2">
+              Description <span className="text-slate-500 text-xs">(optional)</span>
+            </label>
+            <textarea
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="block w-full text-sm text-slate-900 border border-slate-300 rounded-md p-2 placeholder:text-slate-400 focus:ring-2 focus:ring-secondary focus:border-secondary resize-none"
+              placeholder="e.g., Short summary of what this module covers"
               disabled={isUploading}
             />
           </div>
