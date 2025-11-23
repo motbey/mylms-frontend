@@ -242,7 +242,7 @@ const AdminElearning: React.FC = () => {
       <FavoritesSection />
 
       <div className="bg-white p-6 md:p-8 rounded-2xl shadow-md ring-1 ring-gray-100">
-        <h2 className="text-xl font-bold text-gray-800 mb-4">Existing SCORM Modules</h2>
+        <h2 className="text-xl font-bold text-gray-800 mb-4">SCORM Modules</h2>
         {isLoadingModules ? (
             <p className="text-gray-500 text-center py-4">Loading SCORM modules…</p>
         ) : modulesError ? (

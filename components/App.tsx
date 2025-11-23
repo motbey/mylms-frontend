@@ -18,6 +18,7 @@ import AdminCompetencies from '../pages/admin/content/Competencies';
 import AssignCompetencies from '../pages/admin/content/AssignCompetencies';
 import UserCompetencies from '../pages/admin/content/UserCompetencies';
 import AdminCourses from '../pages/admin/content/Courses';
+import ManageCourse from '../pages/admin/content/ManageCourse';
 import AdminForms from '../pages/admin/content/Forms';
 import CreateFormPage from '../pages/admin/content/forms/Create';
 import { AdminFormSubmissionsListPage, AdminFormSubmissionReviewPage } from '../pages/admin/content/forms/Submissions';
@@ -51,6 +52,7 @@ export default function App() {
           <Route path="/admin/content/competencies/assign" element={<AssignCompetencies />} />
           <Route path="/admin/content/competencies/assign/:userId" element={<UserCompetencies />} />
           <Route path="/admin/content/courses" element={<AdminCourses />} />
+          <Route path="/admin/content/courses/:courseId" element={<ManageCourse />} />
           <Route path="/admin/content/forms" element={<AdminForms />} />
           <Route path="/admin/content/forms/create" element={<CreateFormPage />} />
           <Route path="/admin/content/forms/:formId" element={<CreateFormPage />} />
