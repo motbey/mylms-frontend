@@ -227,13 +227,6 @@ const AdminElearning: React.FC = () => {
           <p className="mt-2 text-gray-600">Upload and manage e-learning modules.</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3">
-            <button
-              type="button"
-              onClick={openUploadModal}
-              className="px-6 py-2 bg-secondary text-white font-semibold rounded-md hover:opacity-90 transition-opacity whitespace-nowrap"
-            >
-              Upload to MyLMS
-            </button>
              <Link
               to="/admin/content/upload-scorm-s3"
               className="px-6 py-2 text-center bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700 transition-colors whitespace-nowrap"
