@@ -1,0 +1,160 @@
+---
+alwaysApply: true
+---
+
+# PROJECT CONTEXT FOR CURSOR (MyLMS Frontend)
+
+projectName: "MyLMS Frontend"
+
+description: |
+This is the frontend for MyLMS, built with:
+
+- React + TypeScript
+- Vite
+- Tailwind CSS
+- Supabase Auth
+- Supabase Database
+- AWS S3 for SCORM storage
+- Google Cloud Run for deployment
+
+backend: |
+The backend APIs are all handled by Supabase:
+
+- Database tables include: users, profiles, courses, course_items, modules, forms.
+- RLS (Row Level Security) is enabled.
+- No backend Node server exists — all backend logic lives in Supabase Edge Functions or direct RPC calls.
+
+storage: |
+SCORM packages are uploaded to **AWS S3**, not Supabase Storage.
+Frontend functions call an Edge Function named `finalize-scorm-upload` to unzip and store SCORM content in S3.
+
+localProjectStructure: |
+
+- The MyLMS frontend lives at:
+  C:\LMS Project V2\mylms-frontend
+- This is a single frontend project, NOT a monorepo.
+- Do NOT create extra folders at the root unless requested.
+- Keep all React code inside `src/`.
+- API helpers must live inside `src/lib/api/`.
+- Pages must stay under their existing structure (e.g. pages/admin/content/\*).
+- When creating new components, place them under `src/components/`.
+
+scormAndStorageRules: |
+
+- SCORM packages are stored in AWS S3, NOT Supabase Storage.
+- Do NOT change storage to Supabase buckets unless the user explicitly requests it.
+- Frontend SCORM uploads must use the existing flow that calls the
+  `finalize-scorm-upload` Edge Function.
+- Do NOT remove or bypass `finalize-scorm-upload`.
+- When updating anything related to SCORM, keep compatibility with:
+  - S3 storage layout
+  - Existing Supabase tables for modules / SCORM metadata
+  - The current upload → process → use flow
+
+deployment: |
+This project deploys to **Google Cloud Run** using:
+`gcloud run deploy mylms --source . --region us-west1 --allow-unauthenticated`
+
+branching: |
+Main branch = production.
+All development must occur in feature branches, for example:
+git checkout -b feature/my-change
+Cursor should always write code assuming changes happen on a feature branch.
+
+requirements: |
+
+- DO NOT rewrite or restructure the entire project without being asked.
+- DO NOT delete config files.
+- Provide all instructions **1 step at a time** because the user is new to coding.
+- Before making large changes, ask for confirmation.
+- Include file paths _exactly_ so Cursor edits the correct files.
+
+codingStyle: |
+Use clean and readable TypeScript.
+Prefer explicit types.
+Do not introduce new frameworks unless asked.
+
+uiAndTailwindRules: |
+
+- Use existing Tailwind classes and patterns already used in the project as a reference.
+- Prefer small, composable components instead of huge, complex ones.
+- Do NOT rewrite entire pages or components unless the user explicitly asks.
+- When updating a component, keep existing props and behavior unless a change is requested.
+- Maintain accessibility where possible (labels for inputs, proper button types, etc.).
+- Avoid introducing new UI libraries without being asked (e.g. no MUI/Chakra/AntD by default)
+
+whenEditingFiles: |
+
+- Always show full updated file patches.
+- Never abbreviate code with comments like "... rest unchanged".
+- Keep imports clean and correct.
+
+whenWorkingWithSupabase: |
+
+- Do NOT create new Supabase clients directly in React components.
+- Reuse the existing API helper pattern in src/lib/api/\* (e.g. courses, forms, scorm).
+- When adding new data operations, prefer creating or updating functions in src/lib/api/
+  and then calling them from components.
+- Assume RLS is enabled. Do not bypass Supabase auth.
+- When you think a new RPC or Edge Function might be needed, describe it first in comments
+  instead of guessing the backend implementation.
+
+assistantBehavior: |
+
+- Always explain changes clearly.
+- Break tasks into small steps.
+- Assume the user is learning and needs guidance.
+- Never assume — always confirm before doing large edits.
+
+criticalFiles: |
+The following files are critical and MUST NOT be modified, deleted, or regenerated
+unless the user explicitly asks for it in the prompt:
+
+- Dockerfile
+- supabase/functions/finalize-scorm-upload/index.ts
+- supabase/.branches and Supabase config files
+- Any Supabase migration SQL files
+- GitHub workflow / CI config files (e.g. .github/workflows/\*)
+
+When the user asks to change one of these, explain the change clearly,
+keep it as small as possible, and show the FULL updated file.
+
+buildConfigRules: |
+The following files are sensitive and should NOT be changed unless the user
+explicitly asks for it and understands the impact:
+
+- package.json
+- package-lock.json or pnpm-lock.yaml
+- vite.config.\*.ts
+- tsconfig.json
+- Dockerfile
+- .env and any example env files
+- Supabase config files
+
+When changing these:
+
+- Explain exactly WHY the change is needed.
+- Keep changes as small as possible.
+- Show the FULL updated file.
+- Do NOT bump dependency versions unless specifically requested.
+
+errorAndRefactorRules: |
+
+- When fixing TypeScript or runtime errors, prefer the smallest possible change.
+- Do NOT introduce large refactors just to satisfy the type system.
+- Do NOT rename types, props, or functions across the project unless the user requests it.
+- If a change will affect many files, explain the plan first and wait for confirmation.
+
+gitAndDeploymentRules: |
+
+- Assume all changes happen on a feature branch (never commit directly to main).
+- Suggest branch names like: feature/short-description-of-change
+- When proposing Git commands, use:
+  - git status
+  - git checkout -b feature/...
+  - git add <files>
+  - git commit -m "Meaningful message"
+- Do NOT suggest force pushes or history rewrites (no git push --force) unless the user asks.
+- For deployment, use the existing Cloud Run command:
+  gcloud run deploy mylms --source . --region us-west1 --allow-unauthenticated
+- Do NOT change the deployment process or Dockerfile unless explicitly instructed.

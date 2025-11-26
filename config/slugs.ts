@@ -15,6 +15,7 @@ export const SLUGS = {
   CONTENT_COMPETENCIES: 'content.competencies',
   CONTENT_COURSES: 'content.courses',
   CONTENT_FORMS: 'content.forms',
+  CONTENT_WORKSHOPS: 'content.workshops',
   CONTENT_FORMS_CREATE: 'content.forms.create',
 } as const;
 

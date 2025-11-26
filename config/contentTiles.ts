@@ -63,6 +63,13 @@ export const contentTiles: ContentTile[] = [
     icon: React.createElement(CoursesIcon),
   },
   {
+    slug: SLUGS.CONTENT_WORKSHOPS,
+    label: "Workshops",
+    description: "Create and manage workshop sessions.",
+    to: "/admin/content/workshops",
+    icon: React.createElement(CoursesIcon),
+  },
+  {
     slug: SLUGS.CONTENT_FORMS,
     label: "Forms",
     description: "Create and manage custom forms and surveys.",
