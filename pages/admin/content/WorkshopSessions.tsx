@@ -11,6 +11,14 @@ import {
   searchActiveProfiles,
   type ProfileSummary,
 } from "../../../lib/api/profiles";
+import { listCompanies, type Company } from "../../../lib/api/companies";
+import {
+  enrolCompanyInSession,
+  enrolUserInWorkshopSession,
+  listEnrolmentsForSession,
+  deleteWorkshopEnrolment,
+  type WorkshopEnrolment,
+} from "../../../lib/api/workshopEnrolments";
 
 type ToastState = { message: string; type: "success" | "error" } | null;
 
@@ -65,7 +73,7 @@ const Modal: React.FC<{
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg transform rounded-2xl bg-white shadow-xl transition-all max-h-[85vh] overflow-hidden flex flex-col"
+        className="w-full max-w-4xl transform rounded-2xl bg-white shadow-xl transition-all max-h-[85vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b px-6 py-4 flex justify-between items-center shrink-0">
@@ -127,6 +135,23 @@ const WorkshopSessionsPage: React.FC = () => {
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
   const [selectedUsers, setSelectedUsers] = useState<ProfileSummary[]>([]);
   const [enrolFormError, setEnrolFormError] = useState<string | null>(null);
+
+  // Company-wide enrolment state
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [isLoadingCompanies, setIsLoadingCompanies] = useState(false);
+  const [companiesError, setCompaniesError] = useState<string | null>(null);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
+  const [isEnrollingCompany, setIsEnrollingCompany] = useState(false);
+
+  // Individual user enrolment loading state
+  const [isEnrollingUsers, setIsEnrollingUsers] = useState(false);
+
+  // View enrolments modal state
+  const [isEnrolmentsModalOpen, setIsEnrolmentsModalOpen] = useState(false);
+  const [enrolmentsLoading, setEnrolmentsLoading] = useState(false);
+  const [enrolmentsError, setEnrolmentsError] = useState<string | null>(null);
+  const [enrolments, setEnrolments] = useState<WorkshopEnrolment[]>([]);
+  const [enrolmentsSession, setEnrolmentsSession] = useState<WorkshopSession | null>(null);
 
   const loadSessions = async () => {
     if (!workshopId) {
@@ -238,13 +263,33 @@ const WorkshopSessionsPage: React.FC = () => {
     setCancelledEditSession(null);
   };
 
+  const loadCompanies = async () => {
+    setIsLoadingCompanies(true);
+    setCompaniesError(null);
+    try {
+      const data = await listCompanies();
+      setCompanies(data);
+    } catch (err) {
+      console.error("Failed to load companies", err);
+      setCompaniesError("Failed to load companies. Please try again.");
+    } finally {
+      setIsLoadingCompanies(false);
+    }
+  };
+
   const handleOpenEnrolModal = (session: WorkshopSession) => {
     setEnrolSession(session);
     setUserSearch("");
     setUserSearchResults([]);
     setSelectedUsers([]);
     setEnrolFormError(null);
+    setSelectedCompanyId("");
     setIsEnrolModalOpen(true);
+
+    // Load companies if not already loaded
+    if (companies.length === 0) {
+      loadCompanies();
+    }
   };
 
   const handleCloseEnrolModal = () => {
@@ -254,6 +299,128 @@ const WorkshopSessionsPage: React.FC = () => {
     setUserSearchResults([]);
     setSelectedUsers([]);
     setEnrolFormError(null);
+    setSelectedCompanyId("");
+  };
+
+  const handleEnrolCompany = async () => {
+    if (!enrolSession || !selectedCompanyId) return;
+
+    setIsEnrollingCompany(true);
+    try {
+      const result = await enrolCompanyInSession({
+        sessionId: enrolSession.id,
+        companyId: selectedCompanyId,
+        enrolmentType: "company",
+        isMandatory: true,
+      });
+
+      const { createdCount, skippedCount, totalTargets } = result;
+
+      // Build user-friendly toast message based on the result
+      let message: string;
+      if (totalTargets === 0) {
+        message = "No eligible users found for this company.";
+      } else if (skippedCount === 0) {
+        message = `Enrolled ${createdCount} user(s) into this session.`;
+      } else {
+        message = `Enrolled ${createdCount} user(s). ${skippedCount} user(s) were already enrolled in this workshop.`;
+      }
+
+      setToast({
+        message,
+        type: "success",
+      });
+
+      // Reset selection after successful enrolment
+      setSelectedCompanyId("");
+      // TODO: Reload session enrolments if this page displays them
+    } catch (err) {
+      console.error("Failed to enrol company", err);
+      setToast({
+        message: "Failed to enrol company. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setIsEnrollingCompany(false);
+    }
+  };
+
+  const handleEnrolSelectedUsers = async () => {
+    if (!enrolSession) return;
+    if (!selectedUsers.length) {
+      setToast({
+        message: "Please select at least one user to enrol.",
+        type: "error",
+      });
+      return;
+    }
+
+    setIsEnrollingUsers(true);
+    try {
+      const sessionId = enrolSession.id;
+      const userIds = selectedUsers.map((u) => u.user_id);
+
+      const results = await Promise.allSettled(
+        userIds.map((userId) =>
+          enrolUserInWorkshopSession({
+            sessionId,
+            userId,
+            enrolmentType: "manual",
+            isMandatory: false,
+          })
+        )
+      );
+
+      let hadDuplicate = false;
+      let hadOtherError = false;
+
+      results.forEach((result) => {
+        if (result.status === "rejected") {
+          const err: any = result.reason;
+          const msg = err?.message || "";
+
+          if (
+            typeof msg === "string" &&
+            msg.toLowerCase().includes("learner_already_enrolled_in_workshop")
+          ) {
+            hadDuplicate = true;
+          } else {
+            hadOtherError = true;
+            console.error("Failed to enrol user", err);
+          }
+        }
+      });
+
+      if (hadOtherError) {
+        setToast({
+          message: "Failed to enrol one or more learners. Please try again.",
+          type: "error",
+        });
+      } else {
+        setToast({
+          message: "Learner(s) enrolled successfully.",
+          type: "success",
+        });
+      }
+
+      if (hadDuplicate) {
+        // Show a second toast for the duplicate case
+        // Use setTimeout to ensure both toasts can be seen
+        setTimeout(() => {
+          setToast({
+            message: "Learner already enrolled in this workshop.",
+            type: "error",
+          });
+        }, 100);
+      }
+
+      // Clear selection and close modal
+      setSelectedUsers([]);
+      setIsEnrolModalOpen(false);
+      // TODO: Reload session enrolments if this page displays them
+    } finally {
+      setIsEnrollingUsers(false);
+    }
   };
 
   // Search handler with simple debounce
@@ -311,6 +478,50 @@ const WorkshopSessionsPage: React.FC = () => {
 
   const handleRemoveUser = (userId: string) => {
     setSelectedUsers((prev) => prev.filter((p) => p.user_id !== userId));
+  };
+
+  const handleViewEnrolments = async (session: WorkshopSession) => {
+    setEnrolmentsSession(session);
+    setIsEnrolmentsModalOpen(true);
+    setEnrolments([]);
+    setEnrolmentsError(null);
+    setEnrolmentsLoading(true);
+    try {
+      const data = await listEnrolmentsForSession(session.id);
+      setEnrolments(data);
+    } catch (err: any) {
+      console.error("Failed to load enrolments", err);
+      setEnrolmentsError("Failed to load enrolments. Please try again.");
+    } finally {
+      setEnrolmentsLoading(false);
+    }
+  };
+
+  const handleRemoveEnrolment = async (enrolmentId: string) => {
+    if (!enrolmentId) return;
+
+    const confirmed = window.confirm(
+      "Are you sure you want to remove this learner from this session?"
+    );
+    if (!confirmed) return;
+
+    try {
+      await deleteWorkshopEnrolment(enrolmentId);
+
+      // Update local state to remove the enrolment from the list
+      setEnrolments((prev) => prev.filter((e) => e.id !== enrolmentId));
+
+      setToast({
+        message: "Removed learner from this session.",
+        type: "success",
+      });
+    } catch (error) {
+      console.error("handleRemoveEnrolment error", error);
+      setToast({
+        message: "Failed to remove learner from this session. Please try again.",
+        type: "error",
+      });
+    }
   };
 
   const openCancelModal = (session: WorkshopSession) => {
@@ -631,6 +842,13 @@ const WorkshopSessionsPage: React.FC = () => {
                           Enrol users
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => handleViewEnrolments(s)}
+                        className="px-3 py-1 text-xs font-semibold rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
+                      >
+                        View enrolments
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -939,34 +1157,66 @@ const WorkshopSessionsPage: React.FC = () => {
               </select>
             </div>
 
-            {/* Add companies */}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-800 mb-2">
-                Add companies
+            {/* Company-wide enrolments */}
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold text-gray-800">
+                Company-wide enrolments
               </h3>
-              <select
-                disabled
-                className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-100 cursor-not-allowed"
-              >
-                <option>Company selection coming soon</option>
-              </select>
-            </div>
+
+              {companiesError && (
+                <p className="text-xs text-red-600">{companiesError}</p>
+              )}
+
+              {isLoadingCompanies ? (
+                <p className="text-xs text-gray-500">Loading companies…</p>
+              ) : (
+                <div className="flex gap-2">
+                  <select
+                    value={selectedCompanyId}
+                    onChange={(e) => setSelectedCompanyId(e.target.value)}
+                    className="block flex-1 rounded-md border-gray-300 shadow-sm focus:border-secondary focus:ring-secondary sm:text-sm"
+                    disabled={isEnrollingCompany}
+                  >
+                    <option value="">Select a company…</option>
+                    {companies.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleEnrolCompany}
+                    disabled={!enrolSession || !selectedCompanyId || isEnrollingCompany}
+                    className="px-4 py-2 bg-secondary text-white text-sm font-semibold rounded-md hover:opacity-90 transition-opacity disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    {isEnrollingCompany ? "Enrolling…" : "Enrol company"}
+                  </button>
+                </div>
+              )}
+
+              <p className="text-xs text-gray-500">
+                Select a company to enrol all its active users into this session.
+              </p>
+            </section>
 
             {/* Actions */}
             <div className="flex justify-end gap-3 border-t pt-4">
               <button
                 type="button"
                 onClick={handleCloseEnrolModal}
-                className="px-6 py-2 bg-gray-100 text-gray-700 font-semibold rounded-md hover:bg-gray-200 transition-colors"
+                disabled={isEnrollingUsers}
+                className="px-6 py-2 bg-gray-100 text-gray-700 font-semibold rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                disabled={selectedUsers.length === 0}
+                onClick={handleEnrolSelectedUsers}
+                disabled={isEnrollingUsers || selectedUsers.length === 0}
                 className="px-6 py-2 bg-secondary text-white font-semibold rounded-md hover:opacity-90 transition-opacity disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
-                Enrol users
+                {isEnrollingUsers ? "Enrolling…" : "Enrol users"}
               </button>
             </div>
           </div>
@@ -1022,6 +1272,102 @@ const WorkshopSessionsPage: React.FC = () => {
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        isOpen={isEnrolmentsModalOpen}
+        onClose={() => {
+          if (enrolmentsLoading) return;
+          setIsEnrolmentsModalOpen(false);
+          setEnrolmentsSession(null);
+          setEnrolments([]);
+          setEnrolmentsError(null);
+        }}
+        title={
+          enrolmentsSession
+            ? `Enrolments – ${formatDate(enrolmentsSession.start_at)} ${formatTime(enrolmentsSession.start_at)}`
+            : "Enrolments"
+        }
+      >
+        {enrolmentsLoading ? (
+          <p className="text-gray-500 text-center py-4">Loading enrolments…</p>
+        ) : enrolmentsError ? (
+          <div className="p-3 bg-red-50 text-red-700 rounded-md text-sm">
+            {enrolmentsError}
+          </div>
+        ) : enrolments.length === 0 ? (
+          <p className="text-gray-500 text-center py-4">
+            No learners are enrolled in this session yet.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b">
+                <tr>
+                  <th className="py-2 pr-4 font-semibold text-gray-700">
+                    Learner
+                  </th>
+                  <th className="py-2 pr-4 font-semibold text-gray-700">
+                    Enrolment type
+                  </th>
+                  <th className="py-2 pr-4 font-semibold text-gray-700">
+                    Mandatory?
+                  </th>
+                  <th className="py-2 pr-4 font-semibold text-gray-700">
+                    Status
+                  </th>
+                  <th className="py-2 pr-4 font-semibold text-gray-700">
+                    Attended?
+                  </th>
+                  <th className="py-2 pr-4 font-semibold text-gray-700">
+                    Attendance marked at
+                  </th>
+                  <th className="py-2 pr-4 font-semibold text-gray-700 text-right">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {enrolments.map((e) => (
+                  <tr key={e.id} className="border-b last:border-b-0">
+                    <td className="py-2 pr-4 text-gray-800">
+                      <div className="font-medium">
+                        {e.learner_name || "Unknown"}
+                      </div>
+                      {e.learner_email && (
+                        <div className="text-xs text-gray-500">
+                          {e.learner_email}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2 pr-4 text-gray-600">
+                      {e.enrolment_type ?? "—"}
+                    </td>
+                    <td className="py-2 pr-4 text-gray-600">
+                      {e.is_mandatory ? "Yes" : "No"}
+                    </td>
+                    <td className="py-2 pr-4 text-gray-600">{e.status}</td>
+                    <td className="py-2 pr-4 text-gray-600">
+                      {e.attended ? "Yes" : "No"}
+                    </td>
+                    <td className="py-2 pr-4 text-gray-600">
+                      {e.attended_at ? formatDate(e.attended_at) : "—"}
+                    </td>
+                    <td className="py-2 pr-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveEnrolment(e.id)}
+                        className="px-2 py-1 text-xs font-semibold rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Modal>
     </div>
   );
