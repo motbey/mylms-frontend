@@ -10,6 +10,8 @@ import { UserForms, UserFillForm } from "../pages/user/Forms";
 import AdminDashboard from "../pages/admin/AdminDashboard";
 import AdminUsers from "../pages/admin/Users";
 import AdminGroups from "../pages/admin/Groups";
+import ManageGroupPage from "../pages/admin/ManageGroup";
+import AssignedGroupUsersPage from "../pages/admin/AssignedGroupUsersPage";
 import AdminPrivileges from "../pages/admin/Privileges";
 import AdminContentDashboard from "../pages/admin/ContentDashboard";
 import AdminElearning from "../pages/admin/content/Elearning";
@@ -49,6 +51,11 @@ export default function App() {
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/admin/users" element={<AdminUsers />} />
           <Route path="/admin/groups" element={<AdminGroups />} />
+          <Route path="/admin/groups/:groupId" element={<ManageGroupPage />} />
+          <Route
+            path="/admin/groups/:groupId/assigned-users"
+            element={<AssignedGroupUsersPage />}
+          />
           <Route path="/admin/privileges" element={<AdminPrivileges />} />
           <Route path="/admin/content" element={<AdminContentDashboard />} />
           <Route path="/admin/content/elearning" element={<AdminElearning />} />
