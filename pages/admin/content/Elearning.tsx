@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import FavoritesSection from '../../../components/FavoritesSection';
 import { supabase } from '../../../lib/supabaseClient';
-import { Upload } from 'lucide-react';
+import { Upload, Layers } from 'lucide-react';
 
 // --- Types ---
 interface ScormModule {
@@ -13,6 +13,14 @@ interface ScormModule {
   launch_url: string;
   created_at: string;
   description: string | null;
+}
+
+interface ContentModule {
+  id: string;
+  title: string;
+  description: string | null;
+  created_at: string;
+  lessons: number;
 }
 
 // --- Reusable Toast Component ---
@@ -83,10 +91,17 @@ const AdminElearning: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
-  // Modules list state
+  // SCORM modules list state
   const [scormModules, setScormModules] = useState<ScormModule[]>([]);
   const [isLoadingModules, setIsLoadingModules] = useState<boolean>(true);
   const [modulesError, setModulesError] = useState<string | null>(null);
+
+  // Content modules list state
+  const [contentModules, setContentModules] = useState<ContentModule[]>([]);
+  const [isLoadingContentModules, setIsLoadingContentModules] = useState<boolean>(true);
+  const [contentModulesError, setContentModulesError] = useState<string | null>(null);
+
+  const navigate = useNavigate();
   
   const loadScormModules = useCallback(async () => {
     setIsLoadingModules(true);
@@ -110,9 +125,51 @@ const AdminElearning: React.FC = () => {
     }
   }, []);
 
+  const loadContentModules = useCallback(async () => {
+    setIsLoadingContentModules(true);
+    setContentModulesError(null);
+    try {
+      // Load modules
+      const { data: modules, error: modulesErr } = await supabase
+        .from('content_modules')
+        .select('id, title, description, created_at')
+        .order('created_at', { ascending: false });
+
+      if (modulesErr) {
+        throw modulesErr;
+      }
+
+      // Load lesson counts
+      const { data: lessonCounts, error: lessonsErr } = await supabase
+        .from('content_module_pages')
+        .select('module_id, id');
+
+      if (lessonsErr) {
+        console.error('Error loading lesson counts', lessonsErr);
+      }
+
+      // Combine modules with lesson counts
+      const modulesWithCounts: ContentModule[] = (modules || []).map((m) => ({
+        id: m.id,
+        title: m.title,
+        description: m.description,
+        created_at: m.created_at,
+        lessons: (lessonCounts || []).filter((l) => l.module_id === m.id).length,
+      }));
+
+      setContentModules(modulesWithCounts);
+    } catch (err: any) {
+      setContentModulesError('Failed to load modules. Please try again.');
+      console.error(err);
+    } finally {
+      setIsLoadingContentModules(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadScormModules();
-  }, [loadScormModules]);
+    loadContentModules();
+  }, [loadScormModules, loadContentModules]);
 
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -229,7 +286,14 @@ const AdminElearning: React.FC = () => {
           <p className="mt-2 text-gray-600">Upload and manage e-learning modules.</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3">
-             <Link
+            <Link
+              to="/admin/content/module-builder"
+              className="px-6 py-2 text-center bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition-colors whitespace-nowrap flex items-center gap-2"
+            >
+              <Layers size={18} />
+              Module Builder
+            </Link>
+            <Link
               to="/admin/content/upload-scorm-s3"
               className="px-6 py-2 text-center bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700 transition-colors whitespace-nowrap flex items-center gap-2"
             >
@@ -277,6 +341,52 @@ const AdminElearning: React.FC = () => {
                                     >
                                         Launch
                                     </Link>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        )}
+      </div>
+
+      {/* Modules Section */}
+      <div className="bg-white p-6 md:p-8 rounded-2xl shadow-md ring-1 ring-gray-100">
+        <h2 className="text-xl font-bold text-gray-800 mb-4">Modules</h2>
+        {isLoadingContentModules ? (
+            <p className="text-gray-500 text-center py-4">Loading modules…</p>
+        ) : contentModulesError ? (
+            <div className="p-3 bg-red-50 text-red-700 rounded-md text-sm">{contentModulesError}</div>
+        ) : contentModules.length === 0 ? (
+            <p className="text-gray-500 text-center py-4">No modules have been created yet.</p>
+        ) : (
+            <div className="overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                    <thead className="border-b">
+                        <tr>
+                            <th className="py-2 pr-4 font-semibold text-gray-700">Title</th>
+                            <th className="py-2 pr-4 font-semibold text-gray-700">Lessons</th>
+                            <th className="py-2 pr-4 font-semibold text-gray-700">Created At</th>
+                            <th className="py-2 pr-4 font-semibold text-gray-700">Description</th>
+                            <th className="py-2 pl-4 font-semibold text-gray-700 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {contentModules.map((mod) => (
+                            <tr key={mod.id} className="border-b last:border-b-0">
+                                <td className="py-2 pr-4 font-medium text-gray-800">{mod.title}</td>
+                                <td className="py-2 pr-4 text-gray-600">{mod.lessons}</td>
+                                <td className="py-2 pr-4 text-gray-600">{formatDate(mod.created_at)}</td>
+                                <td className="py-2 pr-4 text-gray-600 truncate max-w-xs" title={mod.description || ''}>
+                                    {mod.description || <span className="text-gray-400 italic">No description</span>}
+                                </td>
+                                <td className="py-2 pl-4 text-right">
+                                    <button
+                                        onClick={() => navigate(`/admin/content/module-builder/${mod.id}`)}
+                                        className="px-3 py-1 bg-secondary text-white text-xs font-semibold rounded-md hover:opacity-90 transition-opacity"
+                                    >
+                                        Build
+                                    </button>
                                 </td>
                             </tr>
                         ))}

@@ -15,6 +15,8 @@ import AssignedGroupUsersPage from "../pages/admin/AssignedGroupUsersPage";
 import AdminPrivileges from "../pages/admin/Privileges";
 import AdminContentDashboard from "../pages/admin/ContentDashboard";
 import AdminElearning from "../pages/admin/content/Elearning";
+import ModuleBuilder from "../pages/admin/content/ModuleBuilder";
+import LessonBuilder from "../pages/admin/content/LessonBuilder";
 import UploadScormToS3 from "../pages/admin/content/UploadScormToS3";
 import AdminCompetencies from "../pages/admin/content/Competencies";
 import AssignCompetencies from "../pages/admin/content/AssignCompetencies";
@@ -59,6 +61,18 @@ export default function App() {
           <Route path="/admin/privileges" element={<AdminPrivileges />} />
           <Route path="/admin/content" element={<AdminContentDashboard />} />
           <Route path="/admin/content/elearning" element={<AdminElearning />} />
+          <Route
+            path="/admin/content/module-builder"
+            element={<ModuleBuilder />}
+          />
+          <Route
+            path="/admin/content/module-builder/:moduleId"
+            element={<ModuleBuilder />}
+          />
+          <Route
+            path="/admin/content/module-builder/:moduleId/lessons/:pageId"
+            element={<LessonBuilder />}
+          />
           <Route
             path="/admin/content/upload-scorm-s3"
             element={<UploadScormToS3 />}
