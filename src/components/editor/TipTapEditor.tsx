@@ -149,44 +149,79 @@ interface TipTapEditorProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  /** Custom class name for the editor content (overrides default styling) */
+  editorClassName?: string;
+  /** If true, Enter key won't create new lines (for single-line inputs like headings) */
+  singleLine?: boolean;
+  /** If true, hides the list buttons from the bubble menu */
+  disableLists?: boolean;
 }
+
+// Default editor classes
+const DEFAULT_EDITOR_CLASS =
+  'focus:outline-none text-[18px] leading-relaxed text-gray-900 [&_p]:my-2 [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:my-3 [&_h3]:text-xl [&_h3]:font-semibold [&_h3]:my-3 [&_h4]:text-lg [&_h4]:font-medium [&_h4]:my-2 [&_ul]:list-disc [&_ul]:ml-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:ml-6 [&_ol]:my-2 [&_li]:my-1 [&_a]:text-blue-600 [&_a]:underline [&_mark]:bg-yellow-200 [&_mark]:px-0.5';
 
 const TipTapEditor: React.FC<TipTapEditorProps> = ({
   value,
   onChange,
   placeholder = 'Start writing...',
+  editorClassName,
+  singleLine = false,
+  disableLists = false,
 }) => {
+  // Build extensions array based on props
+  const extensions = [
+    StarterKit.configure({
+      heading: {
+        levels: [2, 3, 4],
+      },
+      // Disable lists in StarterKit if disableLists is true
+      bulletList: disableLists ? false : undefined,
+      orderedList: disableLists ? false : undefined,
+      listItem: disableLists ? false : undefined,
+      // Disable hard break (Shift+Enter) in single line mode
+      hardBreak: singleLine ? false : undefined,
+    }),
+    Underline,
+    TextAlign.configure({
+      types: ['heading', 'paragraph'],
+    }),
+    Highlight.configure({
+      multicolor: false,
+    }),
+    Link.configure({
+      openOnClick: false,
+      HTMLAttributes: {
+        class: 'text-blue-600 underline cursor-pointer',
+      },
+    }),
+    FontSize,
+    FontColor,
+  ];
+
+  // Add extension to prevent Enter key in single-line mode
+  if (singleLine) {
+    const PreventEnter = Extension.create({
+      name: 'preventEnter',
+      addKeyboardShortcuts() {
+        return {
+          Enter: () => true, // Prevent Enter key
+          'Shift-Enter': () => true, // Prevent Shift+Enter too
+        };
+      },
+    });
+    extensions.push(PreventEnter);
+  }
+
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: {
-          levels: [2, 3, 4],
-        },
-      }),
-      Underline,
-      TextAlign.configure({
-        types: ['heading', 'paragraph'],
-      }),
-      Highlight.configure({
-        multicolor: false,
-      }),
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: {
-          class: 'text-blue-600 underline cursor-pointer',
-        },
-      }),
-      FontSize,
-      FontColor,
-    ],
+    extensions,
     content: value || `<p>${placeholder}</p>`,
     onUpdate: ({ editor }) => {
       onChange(editor.getHTML());
     },
     editorProps: {
       attributes: {
-        class:
-          'focus:outline-none text-[18px] leading-relaxed text-gray-900 [&_p]:my-2 [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:my-3 [&_h3]:text-xl [&_h3]:font-semibold [&_h3]:my-3 [&_h4]:text-lg [&_h4]:font-medium [&_h4]:my-2 [&_ul]:list-disc [&_ul]:ml-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:ml-6 [&_ol]:my-2 [&_li]:my-1 [&_a]:text-blue-600 [&_a]:underline [&_mark]:bg-yellow-200 [&_mark]:px-0.5',
+        class: editorClassName || DEFAULT_EDITOR_CLASS,
       },
     },
   });
@@ -358,13 +393,35 @@ const TipTapEditor: React.FC<TipTapEditorProps> = ({
           className="h-9 rounded-md border border-gray-200 bg-white px-2 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#153ac7] cursor-pointer"
           title="Font size (applies to selected text)"
         >
+          <option value="6">6</option>
+          <option value="8">8</option>
+          <option value="9">9</option>
+          <option value="10">10</option>
+          <option value="11">11</option>
+          <option value="12">12</option>
           <option value="14">14</option>
           <option value="16">16</option>
           <option value="18">18</option>
-          <option value="21">21</option>
+          <option value="20">20</option>
+          <option value="22">22</option>
           <option value="24">24</option>
+          <option value="26">26</option>
           <option value="28">28</option>
           <option value="32">32</option>
+          <option value="36">36</option>
+          <option value="40">40</option>
+          <option value="44">44</option>
+          <option value="48">48</option>
+          <option value="54">54</option>
+          <option value="60">60</option>
+          <option value="66">66</option>
+          <option value="72">72</option>
+          <option value="80">80</option>
+          <option value="88">88</option>
+          <option value="96">96</option>
+          <option value="108">108</option>
+          <option value="120">120</option>
+          <option value="144">144</option>
         </select>
 
         {/* Font Color Picker */}
@@ -504,34 +561,38 @@ const TipTapEditor: React.FC<TipTapEditorProps> = ({
         <span className="mx-1 h-5 w-px bg-gray-200" />
 
         {/* ───────────────────────────────────────────────────────────
-            Group 5: Lists – bullet, numbered
+            Group 5: Lists – bullet, numbered (hidden if disableLists)
         ─────────────────────────────────────────────────────────── */}
-        <button
-          type="button"
-          className={`${baseBtn} ${editor.isActive('bulletList') ? activeBtn : inactiveBtn}`}
-          title="Bullet list"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            editor.chain().focus().toggleBulletList().run();
-          }}
-        >
-          <span className="text-base leading-none">•</span>
-        </button>
+        {!disableLists && (
+          <>
+            <button
+              type="button"
+              className={`${baseBtn} ${editor.isActive('bulletList') ? activeBtn : inactiveBtn}`}
+              title="Bullet list"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                editor.chain().focus().toggleBulletList().run();
+              }}
+            >
+              <span className="text-base leading-none">•</span>
+            </button>
 
-        <button
-          type="button"
-          className={`${baseBtn} ${editor.isActive('orderedList') ? activeBtn : inactiveBtn}`}
-          title="Numbered list"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            editor.chain().focus().toggleOrderedList().run();
-          }}
-        >
-          <span className="text-sm leading-none font-medium">1.</span>
-        </button>
+            <button
+              type="button"
+              className={`${baseBtn} ${editor.isActive('orderedList') ? activeBtn : inactiveBtn}`}
+              title="Numbered list"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                editor.chain().focus().toggleOrderedList().run();
+              }}
+            >
+              <span className="text-sm leading-none font-medium">1.</span>
+            </button>
 
-        {/* Divider */}
-        <span className="mx-1 h-5 w-px bg-gray-200" />
+            {/* Divider */}
+            <span className="mx-1 h-5 w-px bg-gray-200" />
+          </>
+        )}
 
         {/* ───────────────────────────────────────────────────────────
             Group 6: Highlight + Link
