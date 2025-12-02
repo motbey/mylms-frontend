@@ -17,6 +17,13 @@ import {
   Sparkles,
 } from "lucide-react";
 import { supabase } from "../../../lib/supabaseClient";
+import {
+  upsertContentModuleBlock,
+  getContentModuleBlocksByPageId,
+  deleteContentModuleBlock,
+  type ContentModuleBlockRow,
+} from "../../../src/lib/supabase/contentModuleBlocks";
+import type { TextBlockContentJson } from "../../../src/types/contentBlocks";
 import TipTapEditor from "../../../src/components/editor/TipTapEditor";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -44,6 +51,23 @@ import {
   LEARNING_PATTERN_OPTIONS,
 } from "../../../src/types/blocks";
 
+// Helper to map AI-provided labels to dropdown option values
+const normalise = (s: string) => s.trim().toLowerCase();
+
+function findOptionValueByLabel(
+  options: readonly { value: string; label: string }[],
+  label: string | null | undefined
+): string | null {
+  if (!label) return null;
+  const normLabel = normalise(label);
+  const match = options.find(
+    (opt) =>
+      normalise(opt.label) === normLabel ||
+      normalise(opt.value) === normLabel
+  );
+  return match?.value ?? null;
+}
+
 type LessonPage = {
   id: string;
   title: string;
@@ -67,6 +91,7 @@ interface LessonBlock {
   customBackgroundColor?: string;
   layout: BlockLayout;
   metadata?: BlockMetadata;
+  savedToDb?: boolean; // true when block exists in content_module_blocks table
   content: {
     heading?: string; // Used by paragraph-with-heading
     subheading?: string; // Used by paragraph-with-subheading
@@ -342,14 +367,24 @@ interface BlockMetadataPopoverProps {
   metadata: BlockMetadata | undefined;
   onChange: (metadata: BlockMetadata) => void;
   onClose: () => void;
+  blockId: string;
+  blockContent: string;
+  savedToDb?: boolean;
 }
 
 const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
   metadata,
   onChange,
   onClose,
+  blockId,
+  blockContent,
+  savedToDb,
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // AI generation state
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Close on escape key
   useEffect(() => {
@@ -389,18 +424,150 @@ const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
       }
     }
 
+    // Update fieldSources to 'human' for any field being manually changed
+    const updatedFieldSources = { ...(metadata?.fieldSources ?? {}) };
+    for (const key of Object.keys(partial)) {
+      if (key === 'behaviourTag' || key === 'cognitiveSkill' || key === 'learningPattern' || key === 'difficulty') {
+        updatedFieldSources[key] = 'human';
+      }
+    }
+
     onChange({
       behaviourTag: metadata?.behaviourTag ?? null,
-      cognitiveSkillTag: metadata?.cognitiveSkillTag ?? null,
-      learningPatternTag: metadata?.learningPatternTag ?? null,
+      cognitiveSkill: metadata?.cognitiveSkill ?? null,
+      learningPattern: metadata?.learningPattern ?? null,
       difficulty: metadata?.difficulty ?? null,
       notes: metadata?.notes ?? null,
+      fieldSources: updatedFieldSources,
       ...cleanPartial,
     });
   };
 
   const handleClearMetadata = () => {
     onChange({ ...DEFAULT_BLOCK_METADATA });
+  };
+
+  // Handle AI metadata generation
+  // Only works when block has been saved to the database (savedToDb === true)
+  const dbBlockId = savedToDb ? blockId : null;
+
+  const handleGenerateWithAI = async () => {
+    if (!dbBlockId) {
+      setAiError("Please save the lesson before generating AI metadata.");
+      return;
+    }
+
+    if (!blockContent) {
+      setAiError("This block has no content yet.");
+      return;
+    }
+
+    setIsGenerating(true);
+    setAiError(null);
+
+    try {
+      // Build payload we send to the Edge Function
+      const payload = {
+        blockId: dbBlockId,
+        content: blockContent,
+        notes: metadata?.notes ?? null,
+        metadata: {
+          behaviourTag: metadata?.behaviourTag ?? null,
+          cognitiveSkill: metadata?.cognitiveSkill ?? null,
+          learningPattern: metadata?.learningPattern ?? null,
+          difficulty: metadata?.difficulty ?? null,
+        },
+      };
+
+      console.log("AI metadata payload", payload);
+
+      const { data, error } = await supabase.functions.invoke(
+        "ai-generate-block-metadata",
+        {
+          body: payload,
+        }
+      );
+
+      if (error) {
+        console.error("AI metadata error", error);
+        setAiError(
+          "There was a problem generating AI metadata. Please try again."
+        );
+        return;
+      }
+
+      // The Edge Function returns { metadata: { ... } }
+      const aiMeta = data?.metadata;
+      console.log("AI metadata response", aiMeta);
+
+      if (!aiMeta) {
+        setAiError("AI did not return metadata.");
+        return;
+      }
+
+      // Read fields from the AI JSON.
+      // NOTE: The AI returns snake_case keys and LABEL strings (e.g. "Attention / focus").
+      // We need to convert labels to option VALUES (e.g. "attention") for the dropdowns.
+      const aiBehaviourLabel: string | null =
+        (aiMeta.behaviour_tag as string | undefined) ?? null;
+      const aiCognitiveLabel: string | null =
+        (aiMeta.cognitive_skill as string | undefined) ?? null;
+      const aiPatternLabel: string | null =
+        (aiMeta.learning_pattern as string | undefined) ?? null;
+
+      // Map AI labels to dropdown option values
+      const aiBehaviourTag = findOptionValueByLabel(BEHAVIOUR_TAG_OPTIONS, aiBehaviourLabel);
+      const aiCognitiveSkill = findOptionValueByLabel(COGNITIVE_SKILL_OPTIONS, aiCognitiveLabel);
+      const aiLearningPattern = findOptionValueByLabel(LEARNING_PATTERN_OPTIONS, aiPatternLabel);
+
+      let aiDifficulty: number | null = null;
+      if (typeof aiMeta.difficulty === "number") {
+        aiDifficulty = aiMeta.difficulty;
+      }
+
+      // Optional extras from the AI
+      const aiSource: string | null =
+        (aiMeta.source as string | undefined) ?? "ai";
+      const aiExplanations = aiMeta.explanations ?? null;
+      const aiConfidenceScores = aiMeta.confidence_scores ?? null;
+
+      // Merge AI suggestions with any existing human metadata.
+      // If AI returns null for a field, we keep the human-entered value.
+      // Track which fields were set by AI
+      const fieldSources = {
+        ...(metadata?.fieldSources ?? {}),
+        behaviourTag: aiBehaviourTag ? 'ai' as const : metadata?.fieldSources?.behaviourTag ?? null,
+        cognitiveSkill: aiCognitiveSkill ? 'ai' as const : metadata?.fieldSources?.cognitiveSkill ?? null,
+        learningPattern: aiLearningPattern ? 'ai' as const : metadata?.fieldSources?.learningPattern ?? null,
+        difficulty: aiDifficulty !== null ? 'ai' as const : metadata?.fieldSources?.difficulty ?? null,
+      };
+
+      const updatedMetadata: BlockMetadata = {
+        // keep anything else that already exists on the metadata object
+        ...(metadata ?? {}),
+        behaviourTag: aiBehaviourTag ?? metadata?.behaviourTag ?? null,
+        cognitiveSkill: aiCognitiveSkill ?? metadata?.cognitiveSkill ?? null,
+        learningPattern: aiLearningPattern ?? metadata?.learningPattern ?? null,
+        difficulty: aiDifficulty ?? metadata?.difficulty ?? null,
+        // always preserve notes typed by a human
+        notes: metadata?.notes ?? null,
+        // AI provenance + diagnostics
+        source: aiSource,
+        fieldSources,
+        aiExplanations,
+        aiConfidenceScores,
+      };
+
+      console.log("Updated block metadata from AI", updatedMetadata);
+
+      // Push back to the parent so the dropdowns & slider update instantly
+      onChange(updatedMetadata);
+    } catch (err) {
+      console.error("Unexpected AI error", err);
+      setAiError("Unexpected error talking to AI.");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -434,9 +601,22 @@ const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
 
         {/* Behaviour Tag */}
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1.5">
-            Behaviour tag
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-medium text-slate-600">
+              Behaviour tag
+            </label>
+            {metadata?.fieldSources?.behaviourTag && (
+              <span
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                  metadata.fieldSources.behaviourTag === 'ai'
+                    ? 'bg-purple-100 text-purple-700'
+                    : 'bg-blue-100 text-blue-700'
+                }`}
+              >
+                {metadata.fieldSources.behaviourTag === 'ai' ? '🤖 AI' : '👤 Human'}
+              </span>
+            )}
+          </div>
           <select
             value={metadata?.behaviourTag ?? ""}
             onChange={(e) =>
@@ -452,15 +632,28 @@ const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
           </select>
         </div>
 
-        {/* Cognitive Skill Tag */}
+        {/* Cognitive Skill */}
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1.5">
-            Cognitive skill
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-medium text-slate-600">
+              Cognitive skill
+            </label>
+            {metadata?.fieldSources?.cognitiveSkill && (
+              <span
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                  metadata.fieldSources.cognitiveSkill === 'ai'
+                    ? 'bg-purple-100 text-purple-700'
+                    : 'bg-blue-100 text-blue-700'
+                }`}
+              >
+                {metadata.fieldSources.cognitiveSkill === 'ai' ? '🤖 AI' : '👤 Human'}
+              </span>
+            )}
+          </div>
           <select
-            value={metadata?.cognitiveSkillTag ?? ""}
+            value={metadata?.cognitiveSkill ?? ""}
             onChange={(e) =>
-              handleFieldChange({ cognitiveSkillTag: e.target.value })
+              handleFieldChange({ cognitiveSkill: e.target.value })
             }
             className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#ff7a00] focus:border-[#ff7a00] bg-white"
           >
@@ -472,15 +665,28 @@ const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
           </select>
         </div>
 
-        {/* Learning Pattern Tag */}
+        {/* Learning Pattern */}
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1.5">
-            Learning pattern
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-medium text-slate-600">
+              Learning pattern
+            </label>
+            {metadata?.fieldSources?.learningPattern && (
+              <span
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                  metadata.fieldSources.learningPattern === 'ai'
+                    ? 'bg-purple-100 text-purple-700'
+                    : 'bg-blue-100 text-blue-700'
+                }`}
+              >
+                {metadata.fieldSources.learningPattern === 'ai' ? '🤖 AI' : '👤 Human'}
+              </span>
+            )}
+          </div>
           <select
-            value={metadata?.learningPatternTag ?? ""}
+            value={metadata?.learningPattern ?? ""}
             onChange={(e) =>
-              handleFieldChange({ learningPatternTag: e.target.value })
+              handleFieldChange({ learningPattern: e.target.value })
             }
             className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#ff7a00] focus:border-[#ff7a00] bg-white"
           >
@@ -494,15 +700,28 @@ const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
 
         {/* Difficulty Slider */}
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1.5">
-            Difficulty
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-medium text-slate-600">
+              Difficulty
+            </label>
+            {metadata?.fieldSources?.difficulty && (
+              <span
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                  metadata.fieldSources.difficulty === 'ai'
+                    ? 'bg-purple-100 text-purple-700'
+                    : 'bg-blue-100 text-blue-700'
+                }`}
+              >
+                {metadata.fieldSources.difficulty === 'ai' ? '🤖 AI' : '👤 Human'}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <input
               type="range"
-              min="0"
-              max="100"
-              step="5"
+              min={0}
+              max={10}
+              step={1}
               value={metadata?.difficulty ?? 0}
               onChange={(e) =>
                 handleFieldChange({ difficulty: Number(e.target.value) })
@@ -515,10 +734,8 @@ const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
           </div>
           <div className="flex justify-between mt-1 text-[10px] text-slate-400">
             <span>0</span>
-            <span>25</span>
-            <span>50</span>
-            <span>75</span>
-            <span>100</span>
+            <span>5</span>
+            <span>10</span>
           </div>
         </div>
 
@@ -536,6 +753,19 @@ const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
             className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#ff7a00] focus:border-[#ff7a00] resize-none"
           />
         </div>
+
+        {/* Generate with AI button */}
+        <button
+          type="button"
+          onClick={handleGenerateWithAI}
+          disabled={isGenerating || !dbBlockId}
+          className="mt-4 w-full rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+        >
+          {isGenerating ? "Generating…" : "Generate with AI"}
+        </button>
+        {aiError && (
+          <p className="mt-2 text-xs text-red-600">{aiError}</p>
+        )}
 
         {/* Clear button */}
         <div className="pt-2 border-t border-slate-100">
@@ -756,6 +986,9 @@ const HeadingBlock: React.FC<HeadingBlockProps> = ({
             metadata={block.metadata}
             onChange={onMetadataChange}
             onClose={onToggleMetadataPanel}
+            blockId={block.id}
+            blockContent={block.content.heading ?? ""}
+            savedToDb={block.savedToDb}
           />
         )}
 
@@ -994,6 +1227,9 @@ const SubheadingBlock: React.FC<SubheadingBlockProps> = ({
             metadata={block.metadata}
             onChange={onMetadataChange}
             onClose={onToggleMetadataPanel}
+            blockId={block.id}
+            blockContent={block.content.subheading ?? ""}
+            savedToDb={block.savedToDb}
           />
         )}
 
@@ -1243,6 +1479,9 @@ const ColumnsBlock: React.FC<ColumnsBlockProps> = ({
             metadata={block.metadata}
             onChange={onMetadataChange}
             onClose={onToggleMetadataPanel}
+            blockId={block.id}
+            blockContent={(block.content.columnOneContent ?? "") + (block.content.columnTwoContent ?? "")}
+            savedToDb={block.savedToDb}
           />
         )}
 
@@ -1820,6 +2059,9 @@ const TableBlock: React.FC<TableBlockProps> = ({
             metadata={block.metadata}
             onChange={onMetadataChange}
             onClose={onToggleMetadataPanel}
+            blockId={block.id}
+            blockContent=""
+            savedToDb={block.savedToDb}
           />
         )}
 
@@ -2354,6 +2596,9 @@ const ParagraphBlock: React.FC<ParagraphBlockProps> = ({
             metadata={block.metadata}
             onChange={onMetadataChange}
             onClose={onToggleMetadataPanel}
+            blockId={block.id}
+            blockContent={block.content.html ?? ""}
+            savedToDb={block.savedToDb}
           />
         )}
 
@@ -2609,6 +2854,9 @@ const ParagraphWithHeadingBlock: React.FC<ParagraphWithHeadingBlockProps> = ({
             metadata={block.metadata}
             onChange={onMetadataChange}
             onClose={onToggleMetadataPanel}
+            blockId={block.id}
+            blockContent={(block.content.heading ?? "") + (block.content.html ?? "")}
+            savedToDb={block.savedToDb}
           />
         )}
 
@@ -2875,6 +3123,9 @@ const ParagraphWithSubheadingBlock: React.FC<
             metadata={block.metadata}
             onChange={onMetadataChange}
             onClose={onToggleMetadataPanel}
+            blockId={block.id}
+            blockContent={(block.content.subheading ?? "") + (block.content.html ?? "")}
+            savedToDb={block.savedToDb}
           />
         )}
 
@@ -3113,6 +3364,10 @@ const LessonBuilder: React.FC = () => {
     null
   );
 
+  // Save state
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
   useEffect(() => {
     const loadPageAndUser = async () => {
       if (!pageId) {
@@ -3174,6 +3429,102 @@ const LessonBuilder: React.FC = () => {
             setAuthorInitials(trimmed.charAt(0).toUpperCase());
           }
         }
+      }
+
+      // -----------------------------------------------------------------------
+      // Load existing blocks from the database
+      // -----------------------------------------------------------------------
+      try {
+        const rows = await getContentModuleBlocksByPageId(pageId);
+
+        // Only hydrate text blocks for now (row.type === "text")
+        const hydratedBlocks: LessonBlock[] = rows
+          .filter((row) => row.type === "text")
+          .map((row) => {
+            const json = row.content_json as TextBlockContentJson | null;
+
+            // Determine internal block type from content_json.blockType
+            const internalType = (json?.blockType ?? "paragraph") as LessonBlockType;
+
+            // Build the content object based on block type
+            // Handle both old format (string) and new format (structured object)
+            const content: LessonBlock["content"] = {};
+            const rawContent = json?.content;
+            const isStructured = typeof rawContent === "object" && rawContent !== null;
+
+            if (internalType === "paragraph") {
+              content.html = typeof rawContent === "string" ? rawContent : "";
+            } else if (internalType === "heading") {
+              content.heading = typeof rawContent === "string" ? rawContent : "";
+            } else if (internalType === "subheading") {
+              content.subheading = typeof rawContent === "string" ? rawContent : "";
+            } else if (internalType === "paragraph-with-heading") {
+              if (isStructured) {
+                // New format: structured content with heading and body
+                content.heading = (rawContent as any).heading ?? "";
+                content.html = (rawContent as any).body ?? "";
+              } else {
+                // Old format: combined string (legacy)
+                content.heading = "";
+                content.html = typeof rawContent === "string" ? rawContent : "";
+              }
+            } else if (internalType === "paragraph-with-subheading") {
+              if (isStructured) {
+                // New format: structured content with subheading and body
+                content.subheading = (rawContent as any).subheading ?? "";
+                content.html = (rawContent as any).body ?? "";
+              } else {
+                // Old format: combined string (legacy)
+                content.subheading = "";
+                content.html = typeof rawContent === "string" ? rawContent : "";
+              }
+            } else if (internalType === "columns") {
+              if (isStructured) {
+                // New format: structured content with columnOne and columnTwo
+                content.columnOneContent = (rawContent as any).columnOne ?? "";
+                content.columnTwoContent = (rawContent as any).columnTwo ?? "";
+              } else {
+                // Old format: combined string (legacy)
+                content.columnOneContent = typeof rawContent === "string" ? rawContent : "";
+                content.columnTwoContent = "";
+              }
+            } else if (internalType === "table") {
+              // Table content would need special handling
+              content.tableContent = null;
+              content.borderMode = "normal";
+            } else {
+              // Fallback
+              content.html = typeof rawContent === "string" ? rawContent : "";
+            }
+
+            return {
+              id: row.id,
+              type: internalType,
+              orderIndex: row.order_index,
+              style: "light" as BlockStyle,
+              customBackgroundColor: undefined,
+              layout: { ...DEFAULT_BLOCK_LAYOUT },
+              metadata: {
+                behaviourTag: json?.metadata?.behaviourTag ?? null,
+                cognitiveSkill: json?.metadata?.cognitiveSkill ?? null,
+                learningPattern: json?.metadata?.learningPattern ?? null,
+                difficulty: json?.metadata?.difficulty ?? null,
+                notes: json?.metadata?.notes ?? null,
+                source: json?.metadata?.source ?? null,
+                fieldSources: json?.metadata?.fieldSources ?? undefined,
+                aiExplanations: json?.metadata?.aiExplanations ?? undefined,
+                aiConfidenceScores: json?.metadata?.aiConfidenceScores ?? undefined,
+              },
+              savedToDb: true,
+              content,
+            };
+          });
+
+        if (hydratedBlocks.length > 0) {
+          setBlocks(hydratedBlocks);
+        }
+      } catch (err) {
+        console.error("Error loading blocks from database:", err);
       }
 
       setLoading(false);
@@ -3572,7 +3923,32 @@ const LessonBuilder: React.FC = () => {
     createParagraphWithSubheadingBlockAtIndex(pendingInsertIndex);
   };
 
-  const handleDeleteBlock = (blockId: string) => {
+  const handleDeleteBlock = async (blockId: string) => {
+    // Find the block to check if it's saved to the database
+    const blockToDelete = blocks.find((b) => b.id === blockId);
+    
+    // Show confirmation dialog
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this block? This action cannot be undone."
+    );
+    
+    if (!confirmed) {
+      return;
+    }
+
+    // If the block was saved to the database, delete it there first
+    if (blockToDelete?.savedToDb) {
+      try {
+        await deleteContentModuleBlock(blockId);
+        console.log("Block deleted from database:", blockId);
+      } catch (error) {
+        console.error("Error deleting block from database:", error);
+        alert("Failed to delete block. Please try again.");
+        return;
+      }
+    }
+
+    // Remove from local state
     setBlocks((prev) =>
       prev
         .filter((block) => block.id !== blockId)
@@ -3642,6 +4018,133 @@ const LessonBuilder: React.FC = () => {
   const handleMoveBlockUp = (blockId: string) => moveBlock(blockId, "up");
   const handleMoveBlockDown = (blockId: string) => moveBlock(blockId, "down");
 
+  // ---------------------------------------------------------------------------
+  // SAVE LESSON HANDLER
+  // ---------------------------------------------------------------------------
+  const handleSaveLesson = async () => {
+    if (!pageId) {
+      console.error("No pageId available");
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveMessage(null);
+
+    // Define which block types are text-based and should be saved
+    const textBlockTypes: LessonBlockType[] = [
+      "paragraph",
+      "heading",
+      "subheading",
+      "paragraph-with-heading",
+      "paragraph-with-subheading",
+    ];
+
+    // Track updated block IDs (for newly inserted blocks)
+    const updatedBlockIds: Record<string, string> = {};
+
+    try {
+      for (const block of blocks) {
+        // Only process text-based blocks for now
+        if (!textBlockTypes.includes(block.type)) {
+          continue;
+        }
+
+        // Build the content based on block type
+        // For simple blocks, content is a string
+        // For compound blocks, content is a StructuredBlockContent object
+        let blockContent: string | { heading?: string; subheading?: string; body?: string; columnOne?: string; columnTwo?: string } = "";
+        
+        if (block.type === "paragraph") {
+          blockContent = block.content.html ?? "";
+        } else if (block.type === "heading") {
+          blockContent = block.content.heading ?? "";
+        } else if (block.type === "subheading") {
+          blockContent = block.content.subheading ?? "";
+        } else if (block.type === "paragraph-with-heading") {
+          // Store heading and body separately
+          blockContent = {
+            heading: block.content.heading ?? "",
+            body: block.content.html ?? "",
+          };
+        } else if (block.type === "paragraph-with-subheading") {
+          // Store subheading and body separately
+          blockContent = {
+            subheading: block.content.subheading ?? "",
+            body: block.content.html ?? "",
+          };
+        } else if (block.type === "columns") {
+          // Store columns separately
+          blockContent = {
+            columnOne: block.content.columnOneContent ?? "",
+            columnTwo: block.content.columnTwoContent ?? "",
+          };
+        }
+
+        // Build the TextBlockContentJson object
+        const contentJson: TextBlockContentJson = {
+          blockType: block.type,
+          content: blockContent,
+          metadata: {
+            behaviourTag: block.metadata?.behaviourTag ?? null,
+            cognitiveSkill: block.metadata?.cognitiveSkill ?? null,
+            learningPattern: block.metadata?.learningPattern ?? null,
+            difficulty: block.metadata?.difficulty ?? null,
+            notes: block.metadata?.notes ?? null,
+            source: block.metadata?.source ?? null,
+            fieldSources: block.metadata?.fieldSources ?? null,
+            aiExplanations: block.metadata?.aiExplanations ?? null,
+            aiConfidenceScores: block.metadata?.aiConfidenceScores ?? null,
+          },
+        };
+
+        // Check if block.id looks like a UUID from the database or a client-generated one
+        // For now, assume all IDs are valid and let upsert handle insert vs update
+        const result = await upsertContentModuleBlock({
+          id: block.id,
+          pageId: pageId,
+          type: block.type,
+          orderIndex: block.orderIndex,
+          contentJson,
+          learningGoal: null,
+          mediaType: null,
+          isCore: null,
+          difficultyLevel: null,
+        });
+
+        // If the returned id is different from the block id, track it for update
+        if (result && result.id && result.id !== block.id) {
+          updatedBlockIds[block.id] = result.id;
+        }
+      }
+
+      // Update local state: set savedToDb=true for all saved blocks, and update IDs if needed
+      setBlocks((prev) =>
+        prev.map((block) => {
+          // Only update text blocks that were saved
+          if (!textBlockTypes.includes(block.type)) {
+            return block;
+          }
+          // Update ID if it changed, and mark as saved
+          if (updatedBlockIds[block.id]) {
+            return { ...block, id: updatedBlockIds[block.id], savedToDb: true };
+          }
+          // Mark as saved even if ID didn't change
+          return { ...block, savedToDb: true };
+        })
+      );
+
+      setSaveMessage("Lesson saved successfully!");
+      // Clear the message after 3 seconds
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (error) {
+      console.error("Error saving lesson:", error);
+      setSaveMessage("Error saving lesson. Please try again.");
+      setTimeout(() => setSaveMessage(null), 5000);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const title = page?.title || "Lesson";
 
   if (loading) {
@@ -3671,8 +4174,37 @@ const LessonBuilder: React.FC = () => {
           &larr; Back to Module Builder
         </button>
 
-        {/* Lesson title */}
-        <h1 className="text-4xl font-light text-gray-700 mb-6">{title}</h1>
+        {/* Lesson title row with save button */}
+        <div className="flex items-start justify-between mb-6">
+          <h1 className="text-4xl font-light text-gray-700">{title}</h1>
+          <div className="flex items-center gap-3">
+            {/* Save message */}
+            {saveMessage && (
+              <span
+                className={`text-sm ${
+                  saveMessage.includes("Error")
+                    ? "text-red-600"
+                    : "text-green-600"
+                }`}
+              >
+                {saveMessage}
+              </span>
+            )}
+            {/* Save button */}
+            <button
+              type="button"
+              onClick={handleSaveLesson}
+              disabled={isSaving}
+              className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                isSaving
+                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                  : "bg-orange-500 hover:bg-orange-600 text-white"
+              }`}
+            >
+              {isSaving ? "Saving…" : "Save lesson"}
+            </button>
+          </div>
+        </div>
 
         {/* Author row */}
         {authorName && (

@@ -18,13 +18,30 @@ export interface BlockMetadata {
   /** Behaviour tag - e.g., 'attention', 'reflection', 'recall', 'instruction' */
   behaviourTag: string | null;
   /** Cognitive skill level (Bloom's taxonomy) - e.g., 'remember', 'understand', 'apply' */
-  cognitiveSkillTag: string | null;
+  cognitiveSkill: string | null;
   /** Learning pattern - e.g., 'microlearning', 'scenario', 'spaced', 'jobaid' */
-  learningPatternTag: string | null;
-  /** Difficulty level (0-100), null means not set */
+  learningPattern: string | null;
+  /** Difficulty level (0-10), null means not set */
   difficulty: number | null;
   /** Free-text notes for AI/analytics */
-  notes: string | null;
+  notes?: string | null;
+
+  /** Who set these tags - 'ai' or 'human' or other string (legacy, use fieldSources instead) */
+  source?: 'ai' | 'human' | string | null;
+
+  /** Per-field source tracking - who set each individual field */
+  fieldSources?: {
+    behaviourTag?: 'ai' | 'human' | null;
+    cognitiveSkill?: 'ai' | 'human' | null;
+    learningPattern?: 'ai' | 'human' | null;
+    difficulty?: 'ai' | 'human' | null;
+  };
+
+  /** AI explanations for each field */
+  aiExplanations?: any;
+
+  /** AI confidence scores for each field */
+  aiConfidenceScores?: any;
 }
 
 /**
@@ -32,8 +49,8 @@ export interface BlockMetadata {
  */
 export const DEFAULT_BLOCK_METADATA: BlockMetadata = {
   behaviourTag: null,
-  cognitiveSkillTag: null,
-  learningPatternTag: null,
+  cognitiveSkill: null,
+  learningPattern: null,
   difficulty: null,
   notes: null,
 };
@@ -45,8 +62,8 @@ export function hasBlockMetadata(metadata: BlockMetadata | undefined | null): bo
   if (!metadata) return false;
   return (
     (metadata.behaviourTag !== null && metadata.behaviourTag !== '') ||
-    (metadata.cognitiveSkillTag !== null && metadata.cognitiveSkillTag !== '') ||
-    (metadata.learningPatternTag !== null && metadata.learningPatternTag !== '') ||
+    (metadata.cognitiveSkill !== null && metadata.cognitiveSkill !== '') ||
+    (metadata.learningPattern !== null && metadata.learningPattern !== '') ||
     (metadata.difficulty !== null && metadata.difficulty > 0) ||
     (metadata.notes !== null && metadata.notes !== '')
   );
