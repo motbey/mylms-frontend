@@ -48,6 +48,14 @@ import {
   type BlockStyle,
 } from "../../../src/components/blocks/BlockStyleMenu";
 
+// Import media assets
+import {
+  MediaAsset,
+  listMediaAssets,
+  MEDIA_IMAGES_BASE_URL,
+} from "../../../src/lib/mediaAssets";
+import { ImageUploadAndLibrary } from "../../../src/components/media";
+
 // Import shared block types
 import {
   type BlockMetadata,
@@ -94,7 +102,42 @@ type LessonBlockType =
   | "columns"
   | "table"
   | "numbered-list"
-  | "bullet-list";
+  | "bullet-list"
+  | "image-centered"
+  | "image-fullwidth"
+  | "image-text";
+
+// Content shape for image-centered block
+interface ImageCenteredContent {
+  media_asset_id: string | null;
+  alt_text: string;
+  caption: string | null;
+  public_url?: string | null; // Cached public URL for display
+}
+
+// Content shape for image-fullwidth block
+interface ImageFullWidthContent {
+  media_asset_id: string | null;
+  alt_text: string;
+  caption: string | null;
+  public_url?: string | null; // Cached public URL for display
+}
+
+// Content shape for image-text block
+interface ImageTextContent {
+  media_asset_id: string | null;
+  public_url?: string | null;
+  alt_text?: string;
+  layout: {
+    imagePosition: "left" | "right";
+    imageWidth: 25 | 50 | 75;
+  };
+  text: {
+    heading: string;
+    body: string;
+  };
+  ai_metadata?: unknown; // Reserved for future AI integration
+}
 
 // Types for ordered list block
 type OrderedListStyle =
@@ -220,6 +263,7 @@ interface LessonBlock {
   metadata?: BlockMetadata;
   mblMetadata?: unknown; // Raw AI-generated metadata from mbl_metadata column
   savedToDb?: boolean; // true when block exists in content_module_blocks table
+  media_asset_id?: string | null; // FK to media_assets for image blocks
   content: {
     heading?: string; // Used by paragraph-with-heading
     subheading?: string; // Used by paragraph-with-subheading
@@ -228,7 +272,6 @@ interface LessonBlock {
     tableContent?: unknown; // Used by table block (TipTap JSON)
     borderMode?: "normal" | "dashed" | "alternate"; // Used by table block
     html?: string;
-    text?: string;
     // Ordered list block fields
     listItems?: NumberedListItem[];
     startNumber?: number; // Start number for the list
@@ -240,6 +283,10 @@ interface LessonBlock {
     bulletStyle?: BulletStyle; // Level-1 style (disc, circle, square, dash, check)
     bulletSubStyle?: BulletStyle; // Level-2 style for nested items
     bulletColor?: string; // Custom color for bullet markers (hex string)
+    // Image-text block fields
+    text?: string | { heading: string; body: string }; // String for simple text, object for image-text
+    layout?: { imagePosition: "left" | "right"; imageWidth: 25 | 50 | 75 }; // For image-text block
+    ai_metadata?: unknown; // Reserved for AI integration
     // Animation settings (applies to all blocks)
     animation?: BlockAnimation;
     animationDuration?: AnimationDuration;
@@ -644,12 +691,21 @@ function getContentWidthClasses(width: ContentWidth): string {
 interface BlockWrapperProps {
   layout: BlockLayout;
   children: React.ReactNode;
+  fullWidth?: boolean; // When true, removes content width constraints and side padding
 }
 
-const BlockWrapper: React.FC<BlockWrapperProps> = ({ layout, children }) => {
+const BlockWrapper: React.FC<BlockWrapperProps> = ({
+  layout,
+  children,
+  fullWidth = false,
+}) => {
   return (
     <div
-      className={`${getContentWidthClasses(layout.contentWidth)} px-8`}
+      className={
+        fullWidth
+          ? "w-full"
+          : `${getContentWidthClasses(layout.contentWidth)} px-8`
+      }
       style={{
         paddingTop: `${layout.paddingTop}px`,
         paddingBottom: `${layout.paddingBottom}px`,
@@ -665,12 +721,22 @@ interface FormatPanelProps {
   layout: BlockLayout;
   onChange: (layout: BlockLayout) => void;
   onClose: () => void;
+  hideContentWidth?: boolean;
+  // Optional image-text block controls
+  imageTextConfig?: {
+    imagePosition: "left" | "right";
+    imageWidth: 25 | 50 | 75;
+    onImagePositionChange: (position: "left" | "right") => void;
+    onImageWidthChange: (width: 25 | 50 | 75) => void;
+  };
 }
 
 const FormatPanel: React.FC<FormatPanelProps> = ({
   layout,
   onChange,
   onClose,
+  hideContentWidth = false,
+  imageTextConfig,
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -742,31 +808,35 @@ const FormatPanel: React.FC<FormatPanelProps> = ({
       </div>
 
       <div className="p-4 space-y-4">
-        {/* Content Width Section */}
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-2">
-            Content width
-          </label>
-          <div className="inline-flex rounded-full bg-slate-100 p-1">
-            {(["S", "M", "L"] as ContentWidth[]).map((width) => (
-              <button
-                key={width}
-                type="button"
-                onClick={() => handleContentWidthChange(width)}
-                className={`px-4 py-1.5 text-sm font-medium rounded-full transition-all ${
-                  layout.contentWidth === width
-                    ? "bg-white shadow-sm text-slate-900"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                {width}
-              </button>
-            ))}
+        {/* Content Width Section - hidden for some block types */}
+        {!hideContentWidth && (
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-2">
+              Content width
+            </label>
+            <div className="inline-flex rounded-full bg-slate-100 p-1">
+              {(["S", "M", "L"] as ContentWidth[]).map((width) => (
+                <button
+                  key={width}
+                  type="button"
+                  onClick={() => handleContentWidthChange(width)}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-all ${
+                    layout.contentWidth === width
+                      ? "bg-white shadow-sm text-slate-900"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  {width}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Block Padding Section */}
-        <div className="border-t border-slate-200 pt-4">
+        <div
+          className={hideContentWidth ? "" : "border-t border-slate-200 pt-4"}
+        >
           <label className="block text-xs font-medium text-slate-600 mb-2">
             Block padding
           </label>
@@ -853,6 +923,65 @@ const FormatPanel: React.FC<FormatPanelProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Image-Text Block Controls */}
+        {imageTextConfig && (
+          <>
+            {/* Image Position */}
+            <div className="border-t border-slate-200 pt-4">
+              <label className="block text-xs font-medium text-slate-600 mb-2">
+                Image position
+              </label>
+              <div className="inline-flex rounded-full bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => imageTextConfig.onImagePositionChange("left")}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-all ${
+                    imageTextConfig.imagePosition === "left"
+                      ? "bg-white shadow-sm text-slate-900"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Left
+                </button>
+                <button
+                  type="button"
+                  onClick={() => imageTextConfig.onImagePositionChange("right")}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-all ${
+                    imageTextConfig.imagePosition === "right"
+                      ? "bg-white shadow-sm text-slate-900"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Right
+                </button>
+              </div>
+            </div>
+
+            {/* Image Width */}
+            <div className="border-t border-slate-200 pt-4">
+              <label className="block text-xs font-medium text-slate-600 mb-2">
+                Image width
+              </label>
+              <div className="inline-flex rounded-full bg-slate-100 p-1">
+                {([25, 50, 75] as const).map((width) => (
+                  <button
+                    key={width}
+                    type="button"
+                    onClick={() => imageTextConfig.onImageWidthChange(width)}
+                    className={`px-4 py-1.5 text-sm font-medium rounded-full transition-all ${
+                      imageTextConfig.imageWidth === width
+                        ? "bg-white shadow-sm text-slate-900"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    {width}%
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -5259,6 +5388,1444 @@ const ParagraphBlock: React.FC<ParagraphBlockProps> = ({
   );
 };
 
+// ImageCenteredBlock component
+interface ImageCenteredBlockProps {
+  block: LessonBlock;
+  onChange: (updated: LessonBlock) => void;
+  onStyleChange: (style: BlockStyle, customBackgroundColor?: string) => void;
+  onLayoutChange: (layout: BlockLayout) => void;
+  onMetadataChange: (metadata: BlockMetadata) => void;
+  onMblMetadataCleared: () => void;
+  onMblMetadataUpdated: (mblMetadata: unknown) => void;
+  onAnimationChange: (animation: BlockAnimation) => void;
+  onDurationChange: (duration: AnimationDuration) => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  isFormatPanelOpen: boolean;
+  onToggleFormatPanel: () => void;
+  isMetadataPanelOpen: boolean;
+  onToggleMetadataPanel: () => void;
+  isAppearancePanelOpen: boolean;
+  onToggleAppearancePanel: () => void;
+  isPreviewMode?: boolean;
+}
+
+const ImageCenteredBlock: React.FC<ImageCenteredBlockProps> = ({
+  block,
+  onChange,
+  onStyleChange,
+  onLayoutChange,
+  onMetadataChange,
+  onMblMetadataCleared,
+  onMblMetadataUpdated,
+  onAnimationChange,
+  onDurationChange,
+  onDuplicate,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
+  isFormatPanelOpen,
+  onToggleFormatPanel,
+  isMetadataPanelOpen,
+  onToggleMetadataPanel,
+  isAppearancePanelOpen,
+  onToggleAppearancePanel,
+  isPreviewMode = false,
+}) => {
+  const [styleMenuOpen, setStyleMenuOpen] = useState(false);
+  const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false);
+
+  // Check if this block has metadata set
+  const blockHasMetadata = hasBlockMetadata(block.metadata);
+
+  // Extract image content from block
+  const imageContent = block.content as unknown as ImageCenteredContent;
+  const mediaAssetId = imageContent?.media_asset_id || null;
+  const altText = imageContent?.alt_text || "";
+  const caption = imageContent?.caption || "";
+  const publicUrl = imageContent?.public_url || null;
+
+  // Handle selecting an image from the media library
+  const handleSelectAsset = (asset: MediaAsset) => {
+    onChange({
+      ...block,
+      // Set FK link at block level for database relationship
+      media_asset_id: asset.id,
+      // Store display info in content for rendering
+      content: {
+        ...block.content,
+        // Keep media_asset_id in content_json too for easy access during rendering
+        media_asset_id: asset.id,
+        alt_text: asset.alt_text || altText || "",
+        caption: caption,
+        public_url: asset.public_url,
+        // Store additional asset info for display
+        image: {
+          media_asset_id: asset.id,
+          url: asset.public_url,
+          alt_text: asset.alt_text || "",
+          title: asset.title || "",
+          description: asset.description || "",
+        },
+      },
+    });
+    setIsMediaLibraryOpen(false);
+  };
+
+  // Handle alt text change
+  const handleAltTextChange = (newAltText: string) => {
+    onChange({
+      ...block,
+      content: {
+        ...block.content,
+        alt_text: newAltText,
+      },
+    });
+  };
+
+  // Handle caption change
+  const handleCaptionChange = (newCaption: string) => {
+    onChange({
+      ...block,
+      content: {
+        ...block.content,
+        caption: newCaption || null,
+      },
+    });
+  };
+
+  // Compute inline background color for custom style
+  const inlineBackgroundColor =
+    block.style === "custom" && block.customBackgroundColor
+      ? block.customBackgroundColor
+      : undefined;
+
+  // Use block layout or fallback to defaults
+  const layout = block.layout || DEFAULT_BLOCK_LAYOUT;
+
+  // Preview mode rendering - just show image and caption
+  if (isPreviewMode) {
+    if (!publicUrl && !mediaAssetId) {
+      return (
+        <div className="py-4 text-center text-gray-400 italic text-sm">
+          Image not selected
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col items-center">
+        {publicUrl && (
+          <img
+            src={publicUrl}
+            alt={altText || "Image"}
+            className="max-w-[600px] w-full h-auto rounded-lg"
+          />
+        )}
+        {caption && (
+          <p className="mt-2 text-sm text-gray-600 italic text-center">
+            {caption}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    /**
+     * OUTER WRAPPER with group for hover effects
+     */
+    <div className="w-full group">
+      {/**
+       * BLOCK CONTAINER – full width, styled background
+       */}
+      <div
+        className={`
+          relative w-full transition-all duration-300 ease-in-out
+          ${getBlockStyleClasses(block.style)}
+        `}
+        style={
+          inlineBackgroundColor
+            ? { backgroundColor: inlineBackgroundColor }
+            : undefined
+        }
+      >
+        {/* LEFT GUTTER TOOLBAR */}
+        <div className="absolute left-4 top-6 flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 shadow-md z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          {/* Layout / Format */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFormatPanel();
+            }}
+            className={`inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+              isFormatPanelOpen
+                ? "text-[#ff7a00] bg-orange-50"
+                : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+            }`}
+            aria-label="Block format"
+            title="Layout"
+          >
+            <PanelsLeftRight className="h-4 w-4" />
+          </button>
+
+          {/* Style button */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setStyleMenuOpen(!styleMenuOpen);
+              }}
+              className={`inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+                styleMenuOpen
+                  ? "text-[#ff7a00] bg-orange-50"
+                  : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+              }`}
+              aria-label="Block style"
+              title="Style"
+            >
+              <Palette className="h-4 w-4" />
+            </button>
+            {styleMenuOpen && (
+              <BlockStyleMenu
+                open={styleMenuOpen}
+                onClose={() => setStyleMenuOpen(false)}
+                style={block.style}
+                customBackgroundColor={block.customBackgroundColor}
+                onChange={(newStyle, customColor) => {
+                  onStyleChange(newStyle, customColor);
+                  if (newStyle !== "custom") {
+                    setStyleMenuOpen(false);
+                  }
+                }}
+              />
+            )}
+          </div>
+
+          {/* Appearance */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleAppearancePanel();
+            }}
+            className={`inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+              isAppearancePanelOpen
+                ? "text-[#ff7a00] bg-orange-50"
+                : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+            }`}
+            aria-label="Block appearance"
+            title="Appearance"
+          >
+            <Stars className="h-4 w-4" />
+          </button>
+
+          {/* MBL Metadata */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleMetadataPanel();
+            }}
+            className={`relative inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+              isMetadataPanelOpen
+                ? "text-[#ff7a00] bg-orange-50"
+                : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+            }`}
+            aria-label="Block metadata (learning fingerprint)"
+            title="Metadata"
+          >
+            <Database className="h-4 w-4" />
+            {blockHasMetadata && !isMetadataPanelOpen && (
+              <span
+                className="pointer-events-none absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[#ff7a00] ring-2 ring-white shadow-sm"
+                aria-hidden="true"
+              />
+            )}
+          </button>
+        </div>
+
+        {/* RIGHT GUTTER TOOLBAR */}
+        <div className="absolute right-4 top-6 flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 shadow-md z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          {/* Move up */}
+          {canMoveUp && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveUp();
+              }}
+              className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50 transition-colors"
+              aria-label="Move block up"
+              title="Move up"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+          )}
+          {/* Move down */}
+          {canMoveDown && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveDown();
+              }}
+              className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50 transition-colors"
+              aria-label="Move block down"
+              title="Move down"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+          )}
+
+          {/* Duplicate */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDuplicate();
+            }}
+            className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50 transition-colors"
+            aria-label="Duplicate block"
+            title="Duplicate"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+
+          {/* Delete */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+            aria-label="Delete block"
+            title="Delete"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Format Panel */}
+        {isFormatPanelOpen && (
+          <FormatPanel
+            layout={layout}
+            onChange={onLayoutChange}
+            onClose={onToggleFormatPanel}
+            hideContentWidth={true}
+          />
+        )}
+
+        {/* Metadata Panel */}
+        {isMetadataPanelOpen && (
+          <BlockMetadataPopover
+            metadata={block.metadata}
+            onChange={onMetadataChange}
+            onClose={onToggleMetadataPanel}
+            blockId={block.id}
+            blockType={block.type}
+            blockContent={altText || caption || "Image block"}
+            savedToDb={block.savedToDb}
+            mblMetadata={block.mblMetadata}
+            onMblMetadataCleared={onMblMetadataCleared}
+            onMblMetadataUpdated={onMblMetadataUpdated}
+          />
+        )}
+
+        {/* Appearance/Animation Panel */}
+        {isAppearancePanelOpen && (
+          <AppearancePanel
+            animation={block.content.animation ?? "none"}
+            duration={block.content.animationDuration ?? "normal"}
+            onChange={onAnimationChange}
+            onDurationChange={onDurationChange}
+            onClose={onToggleAppearancePanel}
+          />
+        )}
+
+        {/* BLOCK CONTENT */}
+        <BlockWrapper layout={layout}>
+          <div className="flex flex-col items-center gap-4">
+            {/* Image or placeholder */}
+            {publicUrl ? (
+              <div className="flex flex-col items-center w-full">
+                <img
+                  src={publicUrl}
+                  alt={altText || "Selected image"}
+                  className="max-w-[600px] w-full h-auto rounded-lg border border-gray-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsMediaLibraryOpen(true)}
+                  className="mt-3 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Change image
+                </button>
+              </div>
+            ) : (
+              <div
+                className="w-full max-w-[600px] h-48 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center gap-3 bg-gray-50 cursor-pointer hover:border-orange-400 hover:bg-orange-50 transition-colors"
+                onClick={() => setIsMediaLibraryOpen(true)}
+              >
+                <svg
+                  className="w-12 h-12 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+                <span className="text-gray-500">No image selected</span>
+                <button
+                  type="button"
+                  className="px-4 py-2 text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors"
+                >
+                  Choose image
+                </button>
+              </div>
+            )}
+
+            {/* Alt text input */}
+            <div className="w-full max-w-[600px]">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Alt text
+              </label>
+              <input
+                type="text"
+                value={altText}
+                onChange={(e) => handleAltTextChange(e.target.value)}
+                placeholder="Describe the image for accessibility..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              />
+            </div>
+
+            {/* Caption input */}
+            <div className="w-full max-w-[600px]">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Caption (optional)
+              </label>
+              <input
+                type="text"
+                value={caption}
+                onChange={(e) => handleCaptionChange(e.target.value)}
+                placeholder="Add a caption..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+        </BlockWrapper>
+      </div>
+
+      {/* Media Library Modal */}
+      {isMediaLibraryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setIsMediaLibraryOpen(false)}
+          />
+          <div className="relative bg-white rounded-xl shadow-2xl w-[90vw] max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Select Image
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsMediaLibraryOpen(false)}
+                className="h-8 w-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              <ImageUploadAndLibrary onSelectAsset={handleSelectAsset} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ImageFullWidthBlock component
+interface ImageFullWidthBlockProps {
+  block: LessonBlock;
+  onChange: (updated: LessonBlock) => void;
+  onStyleChange: (style: BlockStyle, customBackgroundColor?: string) => void;
+  onLayoutChange: (layout: BlockLayout) => void;
+  onMetadataChange: (metadata: BlockMetadata) => void;
+  onMblMetadataCleared: () => void;
+  onMblMetadataUpdated: (mblMetadata: unknown) => void;
+  onAnimationChange: (animation: BlockAnimation) => void;
+  onDurationChange: (duration: AnimationDuration) => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  isFormatPanelOpen: boolean;
+  onToggleFormatPanel: () => void;
+  isMetadataPanelOpen: boolean;
+  onToggleMetadataPanel: () => void;
+  isAppearancePanelOpen: boolean;
+  onToggleAppearancePanel: () => void;
+  isPreviewMode?: boolean;
+}
+
+const ImageFullWidthBlock: React.FC<ImageFullWidthBlockProps> = ({
+  block,
+  onChange,
+  onStyleChange,
+  onLayoutChange,
+  onMetadataChange,
+  onMblMetadataCleared,
+  onMblMetadataUpdated,
+  onAnimationChange,
+  onDurationChange,
+  onDuplicate,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
+  isFormatPanelOpen,
+  onToggleFormatPanel,
+  isMetadataPanelOpen,
+  onToggleMetadataPanel,
+  isAppearancePanelOpen,
+  onToggleAppearancePanel,
+  isPreviewMode = false,
+}) => {
+  const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false);
+
+  // Check if this block has metadata set
+  const blockHasMetadata = hasBlockMetadata(block.metadata);
+
+  // Extract image content from block
+  const imageContent = block.content as unknown as ImageFullWidthContent;
+  const mediaAssetId = imageContent?.media_asset_id || null;
+  const altText = imageContent?.alt_text || "";
+  const caption = imageContent?.caption || "";
+  const publicUrl = imageContent?.public_url || null;
+
+  // Handle selecting an image from the media library
+  const handleSelectAsset = (asset: MediaAsset) => {
+    onChange({
+      ...block,
+      // Set FK link at block level for database relationship
+      media_asset_id: asset.id,
+      // Store display info in content for rendering
+      content: {
+        ...block.content,
+        // Keep media_asset_id in content_json too for easy access during rendering
+        media_asset_id: asset.id,
+        alt_text: asset.alt_text || altText || "",
+        caption: caption,
+        public_url: asset.public_url,
+        // Store additional asset info for display
+        image: {
+          media_asset_id: asset.id,
+          url: asset.public_url,
+          alt_text: asset.alt_text || "",
+          title: asset.title || "",
+          description: asset.description || "",
+        },
+      },
+    });
+    setIsMediaLibraryOpen(false);
+  };
+
+  // Handle alt text change
+  const handleAltTextChange = (newAltText: string) => {
+    onChange({
+      ...block,
+      content: {
+        ...block.content,
+        alt_text: newAltText,
+      },
+    });
+  };
+
+  // Handle caption change
+  const handleCaptionChange = (newCaption: string) => {
+    onChange({
+      ...block,
+      content: {
+        ...block.content,
+        caption: newCaption || null,
+      },
+    });
+  };
+
+  // Use block layout or fallback to defaults
+  const layout = block.layout || DEFAULT_BLOCK_LAYOUT;
+
+  // Preview mode rendering - just show full-width image and caption
+  if (isPreviewMode) {
+    if (!publicUrl && !mediaAssetId) {
+      return (
+        <div className="py-4 text-center text-gray-400 italic text-sm">
+          Image not selected
+        </div>
+      );
+    }
+
+    return (
+      <div className="w-full">
+        {publicUrl && (
+          <img
+            src={publicUrl}
+            alt={altText || "Image"}
+            className="w-full h-auto object-cover rounded-md"
+          />
+        )}
+        {caption && (
+          <p className="mt-2 text-sm text-gray-600 italic text-center">
+            {caption}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    /**
+     * OUTER WRAPPER with group for hover effects
+     */
+    <div className="w-full group">
+      {/**
+       * BLOCK CONTAINER – full width image (no background styling)
+       */}
+      <div className="relative w-full transition-all duration-300 ease-in-out">
+        {/* LEFT GUTTER TOOLBAR */}
+        <div className="absolute left-4 top-6 flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 shadow-md z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          {/* Layout / Format */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFormatPanel();
+            }}
+            className={`inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+              isFormatPanelOpen
+                ? "text-[#ff7a00] bg-orange-50"
+                : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+            }`}
+            aria-label="Block format"
+            title="Layout"
+          >
+            <PanelsLeftRight className="h-4 w-4" />
+          </button>
+
+          {/* Appearance */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleAppearancePanel();
+            }}
+            className={`inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+              isAppearancePanelOpen
+                ? "text-[#ff7a00] bg-orange-50"
+                : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+            }`}
+            aria-label="Block appearance"
+            title="Appearance"
+          >
+            <Stars className="h-4 w-4" />
+          </button>
+
+          {/* MBL Metadata */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleMetadataPanel();
+            }}
+            className={`relative inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+              isMetadataPanelOpen
+                ? "text-[#ff7a00] bg-orange-50"
+                : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+            }`}
+            aria-label="Block metadata (learning fingerprint)"
+            title="Metadata"
+          >
+            <Database className="h-4 w-4" />
+            {blockHasMetadata && !isMetadataPanelOpen && (
+              <span
+                className="pointer-events-none absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[#ff7a00] ring-2 ring-white shadow-sm"
+                aria-hidden="true"
+              />
+            )}
+          </button>
+        </div>
+
+        {/* RIGHT GUTTER TOOLBAR */}
+        <div className="absolute right-4 top-6 flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 shadow-md z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          {/* Move up */}
+          {canMoveUp && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveUp();
+              }}
+              className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50 transition-colors"
+              aria-label="Move block up"
+              title="Move up"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+          )}
+          {/* Move down */}
+          {canMoveDown && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveDown();
+              }}
+              className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50 transition-colors"
+              aria-label="Move block down"
+              title="Move down"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+          )}
+
+          {/* Duplicate */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDuplicate();
+            }}
+            className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50 transition-colors"
+            aria-label="Duplicate block"
+            title="Duplicate"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+
+          {/* Delete */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+            aria-label="Delete block"
+            title="Delete"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Format Panel */}
+        {isFormatPanelOpen && (
+          <FormatPanel
+            layout={layout}
+            onChange={onLayoutChange}
+            onClose={onToggleFormatPanel}
+            hideContentWidth={true}
+          />
+        )}
+
+        {/* Metadata Panel */}
+        {isMetadataPanelOpen && (
+          <BlockMetadataPopover
+            metadata={block.metadata}
+            onChange={onMetadataChange}
+            onClose={onToggleMetadataPanel}
+            blockId={block.id}
+            blockType={block.type}
+            blockContent={altText || caption || "Image block"}
+            savedToDb={block.savedToDb}
+            mblMetadata={block.mblMetadata}
+            onMblMetadataCleared={onMblMetadataCleared}
+            onMblMetadataUpdated={onMblMetadataUpdated}
+          />
+        )}
+
+        {/* Appearance/Animation Panel */}
+        {isAppearancePanelOpen && (
+          <AppearancePanel
+            animation={block.content.animation ?? "none"}
+            duration={block.content.animationDuration ?? "normal"}
+            onChange={onAnimationChange}
+            onDurationChange={onDurationChange}
+            onClose={onToggleAppearancePanel}
+          />
+        )}
+
+        {/* BLOCK CONTENT - Full width image */}
+        <BlockWrapper layout={layout} fullWidth={true}>
+          <div className="flex flex-col items-center gap-4 w-full">
+            {/* Image or placeholder */}
+            {publicUrl ? (
+              <div className="flex flex-col items-center w-full">
+                <img
+                  src={publicUrl}
+                  alt={altText || "Selected image"}
+                  className="w-full h-auto object-cover rounded-md border border-gray-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsMediaLibraryOpen(true)}
+                  className="mt-3 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Change image
+                </button>
+              </div>
+            ) : (
+              <div
+                className="w-full h-48 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center gap-3 bg-gray-50 cursor-pointer hover:border-orange-400 hover:bg-orange-50 transition-colors"
+                onClick={() => setIsMediaLibraryOpen(true)}
+              >
+                <svg
+                  className="w-12 h-12 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+                <span className="text-gray-500">No image selected</span>
+                <button
+                  type="button"
+                  className="px-4 py-2 text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors"
+                >
+                  Choose image
+                </button>
+              </div>
+            )}
+
+            {/* Alt text input */}
+            <div className="w-full max-w-[600px] mx-auto px-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Alt text
+              </label>
+              <input
+                type="text"
+                value={altText}
+                onChange={(e) => handleAltTextChange(e.target.value)}
+                placeholder="Describe the image for accessibility..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              />
+            </div>
+
+            {/* Caption input */}
+            <div className="w-full max-w-[600px] mx-auto px-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Caption (optional)
+              </label>
+              <input
+                type="text"
+                value={caption}
+                onChange={(e) => handleCaptionChange(e.target.value)}
+                placeholder="Add a caption..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              />
+            </div>
+
+            {/* Caption preview */}
+            {caption && (
+              <p className="w-full text-sm text-gray-500 italic text-center">
+                {caption}
+              </p>
+            )}
+          </div>
+        </BlockWrapper>
+      </div>
+
+      {/* Media Library Modal */}
+      {isMediaLibraryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setIsMediaLibraryOpen(false)}
+          />
+          <div className="relative bg-white rounded-xl shadow-2xl w-[90vw] max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Select Image
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsMediaLibraryOpen(false)}
+                className="h-8 w-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              <ImageUploadAndLibrary onSelectAsset={handleSelectAsset} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ImageTextBlock component - image with text beside it
+interface ImageTextBlockProps {
+  block: LessonBlock;
+  onChange: (updated: LessonBlock) => void;
+  onStyleChange: (style: BlockStyle, customBackgroundColor?: string) => void;
+  onLayoutChange: (layout: BlockLayout) => void;
+  onMetadataChange: (metadata: BlockMetadata) => void;
+  onMblMetadataCleared: () => void;
+  onMblMetadataUpdated: (mblMetadata: unknown) => void;
+  onAnimationChange: (animation: BlockAnimation) => void;
+  onDurationChange: (duration: AnimationDuration) => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  isFormatPanelOpen: boolean;
+  onToggleFormatPanel: () => void;
+  isMetadataPanelOpen: boolean;
+  onToggleMetadataPanel: () => void;
+  isAppearancePanelOpen: boolean;
+  onToggleAppearancePanel: () => void;
+  isPreviewMode?: boolean;
+}
+
+const ImageTextBlock: React.FC<ImageTextBlockProps> = ({
+  block,
+  onChange,
+  onStyleChange,
+  onLayoutChange,
+  onMetadataChange,
+  onMblMetadataCleared,
+  onMblMetadataUpdated,
+  onAnimationChange,
+  onDurationChange,
+  onDuplicate,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
+  isFormatPanelOpen,
+  onToggleFormatPanel,
+  isMetadataPanelOpen,
+  onToggleMetadataPanel,
+  isAppearancePanelOpen,
+  onToggleAppearancePanel,
+  isPreviewMode = false,
+}) => {
+  const [styleMenuOpen, setStyleMenuOpen] = useState(false);
+  const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false);
+
+  // Check if this block has metadata set
+  const blockHasMetadata = hasBlockMetadata(block.metadata);
+
+  // Extract content from block
+  const imageTextContent = block.content as unknown as ImageTextContent;
+  const mediaAssetId = imageTextContent?.media_asset_id || null;
+  const publicUrl = imageTextContent?.public_url || null;
+  const altText = imageTextContent?.alt_text || "";
+  const imagePosition = imageTextContent?.layout?.imagePosition || "left";
+  const imageWidth = imageTextContent?.layout?.imageWidth || 50;
+  const heading = imageTextContent?.text?.heading || "";
+  const body = imageTextContent?.text?.body || "";
+
+  // Debug log to verify data is being passed to component
+  console.log("ImageTextBlock render:", {
+    blockId: block.id,
+    body: body.substring(0, 100) + (body.length > 100 ? "..." : ""),
+    publicUrl,
+    imagePosition,
+    imageWidth,
+  });
+
+  // Handle selecting an image from the media library
+  const handleSelectAsset = (asset: MediaAsset) => {
+    onChange({
+      ...block,
+      media_asset_id: asset.id,
+      content: {
+        ...block.content,
+        media_asset_id: asset.id,
+        public_url: asset.public_url,
+        alt_text: asset.alt_text || "",
+      },
+    });
+    setIsMediaLibraryOpen(false);
+  };
+
+  // Handle layout changes
+  const handleImagePositionChange = (position: "left" | "right") => {
+    onChange({
+      ...block,
+      content: {
+        ...block.content,
+        layout: {
+          ...imageTextContent?.layout,
+          imagePosition: position,
+          imageWidth: imageTextContent?.layout?.imageWidth || 50,
+        },
+      },
+    });
+  };
+
+  const handleImageWidthChange = (width: 25 | 50 | 75) => {
+    onChange({
+      ...block,
+      content: {
+        ...block.content,
+        layout: {
+          ...imageTextContent?.layout,
+          imagePosition: imageTextContent?.layout?.imagePosition || "left",
+          imageWidth: width,
+        },
+      },
+    });
+  };
+
+  // Handle text changes
+  const handleHeadingChange = (newHeading: string) => {
+    onChange({
+      ...block,
+      content: {
+        ...block.content,
+        text: {
+          ...imageTextContent?.text,
+          heading: newHeading,
+          body: imageTextContent?.text?.body || "",
+        },
+      },
+    });
+  };
+
+  const handleBodyChange = (newBody: string) => {
+    onChange({
+      ...block,
+      content: {
+        ...block.content,
+        text: {
+          ...imageTextContent?.text,
+          heading: imageTextContent?.text?.heading || "",
+          body: newBody,
+        },
+      },
+    });
+  };
+
+  // Compute inline background color for custom style
+  const inlineBackgroundColor =
+    block.style === "custom" && block.customBackgroundColor
+      ? block.customBackgroundColor
+      : undefined;
+
+  // Use block layout or fallback to defaults
+  const layout = block.layout || DEFAULT_BLOCK_LAYOUT;
+
+  // Image width mapping based on 896px canvas (max-w-4xl)
+  // 25% = 224px, 50% = 448px, 75% = 672px
+  const IMAGE_WIDTH_MAP: Record<number, string> = {
+    25: "w-[224px]",
+    50: "w-[448px]",
+    75: "w-[672px]",
+  };
+
+  // Preview mode uses percentage-based widths to be responsive to container
+  const PREVIEW_IMAGE_WIDTH_MAP: Record<number, string> = {
+    25: "25%",
+    50: "50%",
+    75: "75%",
+  };
+
+  const imageWidthClass = IMAGE_WIDTH_MAP[imageWidth] ?? IMAGE_WIDTH_MAP[50];
+  const previewImageWidth = PREVIEW_IMAGE_WIDTH_MAP[imageWidth] ?? "50%";
+
+  // Preview mode rendering - uses container-responsive layout
+  if (isPreviewMode) {
+    const imageElement = (
+      <div
+        className="image-text-container flex-shrink-0 overflow-hidden rounded-lg"
+        style={{ width: previewImageWidth, minWidth: "120px" }}
+      >
+        {publicUrl ? (
+          <img
+            src={publicUrl}
+            alt={altText || "Image"}
+            className="w-full h-auto object-cover"
+          />
+        ) : (
+          <div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center">
+            <span className="text-gray-400 text-sm">No image</span>
+          </div>
+        )}
+      </div>
+    );
+
+    const textElement = (
+      <div
+        className="flex-1 min-w-0 flex flex-col justify-center"
+        style={{ minWidth: "150px" }}
+      >
+        {body && (
+          <div
+            className="prose prose-sm max-w-none text-gray-700"
+            dangerouslySetInnerHTML={{ __html: body }}
+          />
+        )}
+      </div>
+    );
+
+    // Use flex-wrap so items stack when container is too narrow
+    return (
+      <div
+        className={`flex flex-wrap gap-6 w-full items-start ${
+          imagePosition === "right" ? "flex-row-reverse" : "flex-row"
+        }`}
+      >
+        {imageElement}
+        {textElement}
+      </div>
+    );
+  }
+
+  // Image section with responsive container
+  const imageSection = (
+    <div
+      className={`image-text-container relative flex-shrink-0 overflow-hidden rounded-lg ${imageWidthClass}`}
+    >
+      {publicUrl ? (
+        <>
+          <img
+            src={publicUrl}
+            alt={altText || "Selected image"}
+            className="w-full h-auto object-cover rounded-lg border border-gray-200"
+          />
+          <button
+            type="button"
+            onClick={() => setIsMediaLibraryOpen(true)}
+            className="absolute bottom-2 right-2 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white/90 hover:bg-white rounded-md shadow-sm transition-colors"
+          >
+            Change
+          </button>
+        </>
+      ) : (
+        <div
+          className="w-full h-48 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center gap-2 bg-gray-50 cursor-pointer hover:border-orange-400 hover:bg-orange-50 transition-colors"
+          onClick={() => setIsMediaLibraryOpen(true)}
+        >
+          <svg
+            className="w-10 h-10 text-gray-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+            />
+          </svg>
+          <span className="text-sm text-gray-500">Select image</span>
+        </div>
+      )}
+    </div>
+  );
+
+  // Text section
+  // DEBUG: Log what body value is being passed to TipTapEditor
+  console.log("ImageTextBlock passing to TipTapEditor:", {
+    blockId: block.id,
+    bodyLength: body.length,
+    bodyPreview: body.substring(0, 80),
+    bodyIsEmpty: !body || body === "",
+  });
+
+  const textSection = (
+    <div className="flex-1 min-w-0 flex flex-col">
+      <TipTapEditor
+        value={body || ""}
+        onChange={handleBodyChange}
+        placeholder="Enter body text..."
+      />
+    </div>
+  );
+
+  return (
+    <div className="w-full group">
+      <div
+        className={`
+          relative w-full transition-all duration-300 ease-in-out
+          ${getBlockStyleClasses(block.style)}
+        `}
+        style={
+          inlineBackgroundColor
+            ? { backgroundColor: inlineBackgroundColor }
+            : undefined
+        }
+      >
+        {/* LEFT GUTTER TOOLBAR */}
+        <div className="absolute left-4 top-6 flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 shadow-md z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          {/* Layout / Format */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFormatPanel();
+            }}
+            className={`inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+              isFormatPanelOpen
+                ? "text-[#ff7a00] bg-orange-50"
+                : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+            }`}
+            aria-label="Block format"
+            title="Layout"
+          >
+            <PanelsLeftRight className="h-4 w-4" />
+          </button>
+
+          {/* Style button */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setStyleMenuOpen(!styleMenuOpen);
+              }}
+              className={`inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+                styleMenuOpen
+                  ? "text-[#ff7a00] bg-orange-50"
+                  : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+              }`}
+              aria-label="Block style"
+              title="Style"
+            >
+              <Palette className="h-4 w-4" />
+            </button>
+            {styleMenuOpen && (
+              <BlockStyleMenu
+                open={styleMenuOpen}
+                onClose={() => setStyleMenuOpen(false)}
+                style={block.style}
+                customBackgroundColor={block.customBackgroundColor}
+                onChange={(newStyle, customColor) => {
+                  onStyleChange(newStyle, customColor);
+                  if (newStyle !== "custom") {
+                    setStyleMenuOpen(false);
+                  }
+                }}
+              />
+            )}
+          </div>
+
+          {/* Appearance */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleAppearancePanel();
+            }}
+            className={`inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+              isAppearancePanelOpen
+                ? "text-[#ff7a00] bg-orange-50"
+                : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+            }`}
+            aria-label="Block appearance"
+            title="Appearance"
+          >
+            <Stars className="h-4 w-4" />
+          </button>
+
+          {/* MBL Metadata */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleMetadataPanel();
+            }}
+            className={`relative inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+              isMetadataPanelOpen
+                ? "text-[#ff7a00] bg-orange-50"
+                : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+            }`}
+            aria-label="Block metadata (learning fingerprint)"
+            title="Metadata"
+          >
+            <Database className="h-4 w-4" />
+            {blockHasMetadata && !isMetadataPanelOpen && (
+              <span
+                className="pointer-events-none absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[#ff7a00] ring-2 ring-white shadow-sm"
+                aria-hidden="true"
+              />
+            )}
+          </button>
+        </div>
+
+        {/* RIGHT GUTTER TOOLBAR */}
+        <div className="absolute right-4 top-6 flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 shadow-md z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          {canMoveUp && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveUp();
+              }}
+              className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50 transition-colors"
+              aria-label="Move block up"
+              title="Move up"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+          )}
+          {canMoveDown && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveDown();
+              }}
+              className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50 transition-colors"
+              aria-label="Move block down"
+              title="Move down"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDuplicate();
+            }}
+            className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50 transition-colors"
+            aria-label="Duplicate block"
+            title="Duplicate"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+            aria-label="Delete block"
+            title="Delete"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Format Panel */}
+        {isFormatPanelOpen && (
+          <FormatPanel
+            layout={layout}
+            onChange={onLayoutChange}
+            onClose={onToggleFormatPanel}
+            imageTextConfig={{
+              imagePosition,
+              imageWidth,
+              onImagePositionChange: handleImagePositionChange,
+              onImageWidthChange: handleImageWidthChange,
+            }}
+          />
+        )}
+
+        {/* Metadata Panel */}
+        {isMetadataPanelOpen && (
+          <BlockMetadataPopover
+            metadata={block.metadata}
+            onChange={onMetadataChange}
+            onClose={onToggleMetadataPanel}
+            blockId={block.id}
+            blockType={block.type}
+            blockContent={heading || body || "Image + Text block"}
+            savedToDb={block.savedToDb}
+            mblMetadata={block.mblMetadata}
+            onMblMetadataCleared={onMblMetadataCleared}
+            onMblMetadataUpdated={onMblMetadataUpdated}
+          />
+        )}
+
+        {/* Appearance/Animation Panel */}
+        {isAppearancePanelOpen && (
+          <AppearancePanel
+            animation={block.content.animation ?? "none"}
+            duration={block.content.animationDuration ?? "normal"}
+            onChange={onAnimationChange}
+            onDurationChange={onDurationChange}
+            onClose={onToggleAppearancePanel}
+          />
+        )}
+
+        {/* BLOCK CONTENT */}
+        <BlockWrapper layout={layout}>
+          {/* Image + Text content - always side by side */}
+          <div
+            className={`flex gap-6 w-full items-start ${
+              imagePosition === "right" ? "flex-row-reverse" : "flex-row"
+            }`}
+          >
+            {imageSection}
+            {textSection}
+          </div>
+        </BlockWrapper>
+      </div>
+
+      {/* Media Library Modal */}
+      {isMediaLibraryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setIsMediaLibraryOpen(false)}
+          />
+          <div className="relative bg-white rounded-xl shadow-2xl w-[90vw] max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Select Image
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsMediaLibraryOpen(false)}
+                className="h-8 w-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              <ImageUploadAndLibrary onSelectAsset={handleSelectAsset} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ParagraphWithHeadingBlock component
 interface ParagraphWithHeadingBlockProps {
   block: LessonBlock;
@@ -6039,6 +7606,25 @@ const LIST_TEMPLATES: BlockTemplate[] = [
   },
 ];
 
+// Templates for the Image category
+const IMAGE_TEMPLATES: BlockTemplate[] = [
+  {
+    id: "image_centered",
+    title: "Image – Centered",
+    description: "Add a centered image with optional alt text and caption.",
+  },
+  {
+    id: "image_fullwidth",
+    title: "Image – Full width",
+    description: "Add a full width image with optional alt text and caption.",
+  },
+  {
+    id: "image_text",
+    title: "Image + Text",
+    description: "Add an image with text beside it.",
+  },
+];
+
 const LessonBuilder: React.FC = () => {
   const { moduleId, pageId } = useParams<{
     moduleId: string;
@@ -6094,6 +7680,9 @@ const LessonBuilder: React.FC = () => {
 
   // Preview state
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewWidth, setPreviewWidth] = useState<
+    "desktop" | "tablet" | "mobile"
+  >("desktop");
 
   // Unsaved changes tracking
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -6169,12 +7758,188 @@ const LessonBuilder: React.FC = () => {
       try {
         const rows = await getContentModuleBlocksByPageId(pageId);
 
-        // Only hydrate text blocks for now (row.type === "text")
+        // Hydrate text blocks and image blocks
+        const supportedDbTypes = [
+          "text",
+          "image-centered",
+          "image-fullwidth",
+          "image-text",
+        ];
         const hydratedBlocks: LessonBlock[] = rows
-          .filter((row) => row.type === "text")
+          .filter((row) => supportedDbTypes.includes(row.type))
           .map((row) => {
             const json = row.content_json as TextBlockContentJson | null;
 
+            // ---------------------------------------------------------------
+            // Handle image block types directly (they use DB type as-is)
+            // ---------------------------------------------------------------
+            if (
+              row.type === "image-centered" ||
+              row.type === "image-fullwidth"
+            ) {
+              const rawContent =
+                typeof json?.content === "object" && json?.content !== null
+                  ? json.content
+                  : {};
+
+              // Read style from content_json.style, falling back to "light"
+              const savedStyle = json?.style?.style ?? "light";
+              const savedCustomColor =
+                json?.style?.customBackgroundColor ?? undefined;
+              // Read animation settings from content_json
+              const savedAnimation = (json as any)?.animation ?? "none";
+              const savedAnimationDuration =
+                (json as any)?.animationDuration ?? "normal";
+
+              return {
+                id: row.id,
+                type: row.type as LessonBlockType, // "image-centered" or "image-fullwidth"
+                orderIndex: row.order_index,
+                style: savedStyle as BlockStyle,
+                customBackgroundColor: savedCustomColor,
+                layout: { ...DEFAULT_BLOCK_LAYOUT },
+                metadata: {
+                  behaviourTag: json?.metadata?.behaviourTag ?? null,
+                  cognitiveSkill: json?.metadata?.cognitiveSkill ?? null,
+                  learningPattern: json?.metadata?.learningPattern ?? null,
+                  difficulty: json?.metadata?.difficulty ?? null,
+                  notes: json?.metadata?.notes ?? null,
+                  source: json?.metadata?.source ?? null,
+                  fieldSources: json?.metadata?.fieldSources ?? undefined,
+                  aiExplanations: json?.metadata?.aiExplanations ?? undefined,
+                  aiConfidenceScores:
+                    json?.metadata?.aiConfidenceScores ?? undefined,
+                },
+                mblMetadata: row.mbl_metadata,
+                savedToDb: true,
+                media_asset_id: row.media_asset_id ?? null,
+                content: {
+                  // Spread content from DB (media_asset_id, alt_text, caption, public_url, image, etc.)
+                  media_asset_id:
+                    (rawContent as any).media_asset_id ??
+                    row.media_asset_id ??
+                    null,
+                  alt_text: (rawContent as any).alt_text ?? "",
+                  caption: (rawContent as any).caption ?? null,
+                  public_url: (rawContent as any).public_url ?? null,
+                  image: (rawContent as any).image ?? null,
+                  animation: savedAnimation as BlockAnimation,
+                  animationDuration:
+                    savedAnimationDuration as AnimationDuration,
+                },
+              };
+            }
+
+            // ---------------------------------------------------------------
+            // Handle image-text blocks
+            // ---------------------------------------------------------------
+            if (row.type === "image-text") {
+              const rawContent =
+                typeof json?.content === "object" && json?.content !== null
+                  ? json.content
+                  : {};
+
+              // Read style from content_json.style, falling back to "light"
+              const savedStyle = json?.style?.style ?? "light";
+              const savedCustomColor =
+                json?.style?.customBackgroundColor ?? undefined;
+              // Read animation settings from content_json
+              const savedAnimation = (json as any)?.animation ?? "none";
+              const savedAnimationDuration =
+                (json as any)?.animationDuration ?? "normal";
+
+              // Extract body HTML from content.text.body (primary) or content.body (fallback)
+              const savedText = (rawContent as any).text;
+              const bodyHtml: string =
+                (typeof savedText === "object" && savedText?.body) ||
+                (rawContent as any).body ||
+                "";
+
+              // Extract layout content
+              const savedLayout = (rawContent as any).layout ?? {};
+              const rawImagePosition = savedLayout.imagePosition ?? "left";
+              const rawImageWidth = savedLayout.imageWidth ?? 50;
+
+              // Convert imageWidth from decimal (0.25, 0.5, 0.75) to integer (25, 50, 75) if needed
+              const imageWidthInt: 25 | 50 | 75 =
+                rawImageWidth <= 1
+                  ? rawImageWidth === 0.25
+                    ? 25
+                    : rawImageWidth === 0.75
+                    ? 75
+                    : 50
+                  : rawImageWidth === 25
+                  ? 25
+                  : rawImageWidth === 75
+                  ? 75
+                  : 50;
+
+              // Extract image URL from content.image.url (primary) or content.public_url (fallback)
+              const imageUrl: string | null =
+                (rawContent as any).image?.url ||
+                (rawContent as any).public_url ||
+                null;
+
+              // Debug log to verify data is being read correctly
+              console.log("ImageText deserialize:", {
+                rowId: row.id,
+                bodyHtml:
+                  bodyHtml.substring(0, 100) +
+                  (bodyHtml.length > 100 ? "..." : ""),
+                imageUrl,
+                imagePosition: rawImagePosition,
+                imageWidth: imageWidthInt,
+              });
+
+              return {
+                id: row.id,
+                type: "image-text" as LessonBlockType,
+                orderIndex: row.order_index,
+                style: savedStyle as BlockStyle,
+                customBackgroundColor: savedCustomColor,
+                layout: { ...DEFAULT_BLOCK_LAYOUT },
+                metadata: {
+                  behaviourTag: json?.metadata?.behaviourTag ?? null,
+                  cognitiveSkill: json?.metadata?.cognitiveSkill ?? null,
+                  learningPattern: json?.metadata?.learningPattern ?? null,
+                  difficulty: json?.metadata?.difficulty ?? null,
+                  notes: json?.metadata?.notes ?? null,
+                  source: json?.metadata?.source ?? null,
+                  fieldSources: json?.metadata?.fieldSources ?? undefined,
+                  aiExplanations: json?.metadata?.aiExplanations ?? undefined,
+                  aiConfidenceScores:
+                    json?.metadata?.aiConfidenceScores ?? undefined,
+                },
+                mblMetadata: row.mbl_metadata,
+                savedToDb: true,
+                media_asset_id: row.media_asset_id ?? null,
+                content: {
+                  media_asset_id:
+                    (rawContent as any).media_asset_id ??
+                    row.media_asset_id ??
+                    null,
+                  // Use imageUrl which reads from both content.image.url and content.public_url
+                  public_url: imageUrl,
+                  alt_text: (rawContent as any).alt_text ?? "",
+                  layout: {
+                    imagePosition: rawImagePosition as "left" | "right",
+                    imageWidth: imageWidthInt,
+                  },
+                  text: {
+                    heading: "",
+                    body: bodyHtml,
+                  },
+                  ai_metadata: (rawContent as any).ai_metadata ?? null,
+                  animation: savedAnimation as BlockAnimation,
+                  animationDuration:
+                    savedAnimationDuration as AnimationDuration,
+                },
+              };
+            }
+
+            // ---------------------------------------------------------------
+            // Handle text-based blocks (row.type === "text")
+            // ---------------------------------------------------------------
             // Determine internal block type from content_json.blockType
             const internalType = (json?.blockType ??
               "paragraph") as LessonBlockType;
@@ -6712,6 +8477,179 @@ const LessonBuilder: React.FC = () => {
     createBulletListBlockAtIndex(pendingInsertIndex);
   };
 
+  // Create a new image-centered block at a specific index or at the end
+  const createImageCenteredBlockAtIndex = (insertIndex: number | null) => {
+    setBlocks((prev) => {
+      const newBlock: LessonBlock = {
+        id: crypto.randomUUID(),
+        type: "image-centered",
+        orderIndex: 0, // will be recalculated
+        style: "light",
+        customBackgroundColor: undefined,
+        layout: { ...DEFAULT_BLOCK_LAYOUT },
+        metadata: { ...DEFAULT_BLOCK_METADATA },
+        content: {
+          // ImageCenteredContent default values
+          media_asset_id: null,
+          alt_text: "",
+          caption: null,
+          public_url: null,
+        },
+      };
+
+      let newBlocks: LessonBlock[];
+
+      if (
+        insertIndex !== null &&
+        insertIndex >= 0 &&
+        insertIndex <= prev.length
+      ) {
+        // Insert at specific index
+        newBlocks = [
+          ...prev.slice(0, insertIndex),
+          newBlock,
+          ...prev.slice(insertIndex),
+        ];
+      } else {
+        // Append to end
+        newBlocks = [...prev, newBlock];
+      }
+
+      // Re-normalise orderIndex
+      return newBlocks.map((block, i) => ({
+        ...block,
+        orderIndex: i,
+      }));
+    });
+
+    // Close block library and reset pending insert index
+    setIsBlockLibraryOpen(false);
+    setSelectedCategory(null);
+    setPendingInsertIndex(null);
+  };
+
+  const handleAddImageCenteredBlock = () => {
+    createImageCenteredBlockAtIndex(pendingInsertIndex);
+  };
+
+  // Create a new image-fullwidth block at a specific index or at the end
+  const createImageFullWidthBlockAtIndex = (insertIndex: number | null) => {
+    setBlocks((prev) => {
+      const newBlock: LessonBlock = {
+        id: crypto.randomUUID(),
+        type: "image-fullwidth",
+        orderIndex: 0, // will be recalculated
+        style: "light",
+        customBackgroundColor: undefined,
+        layout: { ...DEFAULT_BLOCK_LAYOUT },
+        metadata: { ...DEFAULT_BLOCK_METADATA },
+        content: {
+          // ImageFullWidthContent default values
+          media_asset_id: null,
+          alt_text: "",
+          caption: null,
+          public_url: null,
+        },
+      };
+
+      let newBlocks: LessonBlock[];
+
+      if (
+        insertIndex !== null &&
+        insertIndex >= 0 &&
+        insertIndex <= prev.length
+      ) {
+        // Insert at specific index
+        newBlocks = [
+          ...prev.slice(0, insertIndex),
+          newBlock,
+          ...prev.slice(insertIndex),
+        ];
+      } else {
+        // Append to end
+        newBlocks = [...prev, newBlock];
+      }
+
+      // Re-normalise orderIndex
+      return newBlocks.map((block, i) => ({
+        ...block,
+        orderIndex: i,
+      }));
+    });
+
+    // Close block library and reset pending insert index
+    setIsBlockLibraryOpen(false);
+    setSelectedCategory(null);
+    setPendingInsertIndex(null);
+  };
+
+  const handleAddImageFullWidthBlock = () => {
+    createImageFullWidthBlockAtIndex(pendingInsertIndex);
+  };
+
+  // Create a new image-text block at a specific index or at the end
+  const createImageTextBlockAtIndex = (insertIndex: number | null) => {
+    setBlocks((prev) => {
+      const newBlock: LessonBlock = {
+        id: crypto.randomUUID(),
+        type: "image-text",
+        orderIndex: 0, // will be recalculated
+        style: "light",
+        customBackgroundColor: undefined,
+        layout: { ...DEFAULT_BLOCK_LAYOUT },
+        metadata: { ...DEFAULT_BLOCK_METADATA },
+        content: {
+          // ImageTextContent default values
+          media_asset_id: null,
+          public_url: null,
+          alt_text: "",
+          layout: {
+            imagePosition: "left",
+            imageWidth: 50,
+          },
+          text: {
+            heading: "",
+            body: "",
+          },
+          ai_metadata: null,
+        },
+      };
+
+      let newBlocks: LessonBlock[];
+
+      if (
+        insertIndex !== null &&
+        insertIndex >= 0 &&
+        insertIndex <= prev.length
+      ) {
+        // Insert at specific index
+        newBlocks = [
+          ...prev.slice(0, insertIndex),
+          newBlock,
+          ...prev.slice(insertIndex),
+        ];
+      } else {
+        // Append to end
+        newBlocks = [...prev, newBlock];
+      }
+
+      // Re-normalise orderIndex
+      return newBlocks.map((block, i) => ({
+        ...block,
+        orderIndex: i,
+      }));
+    });
+
+    // Close block library and reset pending insert index
+    setIsBlockLibraryOpen(false);
+    setSelectedCategory(null);
+    setPendingInsertIndex(null);
+  };
+
+  const handleAddImageTextBlock = () => {
+    createImageTextBlockAtIndex(pendingInsertIndex);
+  };
+
   // Create a new paragraph block at a specific index or at the end
   const createParagraphBlockAtIndex = (insertIndex: number | null) => {
     setBlocks((prev) => {
@@ -6976,6 +8914,10 @@ const LessonBuilder: React.FC = () => {
       "columns",
       "table",
       "numbered-list",
+      "bullet-list",
+      "image-centered",
+      "image-fullwidth",
+      "image-text",
     ];
 
     // Track updated block IDs (for newly inserted blocks)
@@ -7040,6 +8982,76 @@ const LessonBuilder: React.FC = () => {
             bulletSubStyle: block.content.bulletSubStyle ?? "disc",
             bulletColor: block.content.bulletColor ?? "#f97316",
           };
+        } else if (block.type === "image-centered") {
+          // Store image content - includes both flat fields and structured image object
+          blockContent = {
+            media_asset_id:
+              block.media_asset_id ?? block.content.media_asset_id ?? null,
+            alt_text: block.content.alt_text ?? "",
+            caption: block.content.caption ?? null,
+            public_url: block.content.public_url ?? null,
+            // Structured image object with full asset info
+            image: block.content.image ?? {
+              media_asset_id:
+                block.media_asset_id ?? block.content.media_asset_id ?? null,
+              url: block.content.public_url ?? null,
+              alt_text: block.content.alt_text ?? "",
+              title: "",
+              description: "",
+            },
+          };
+        } else if (block.type === "image-fullwidth") {
+          // Store image content - includes both flat fields and structured image object
+          blockContent = {
+            media_asset_id:
+              block.media_asset_id ?? block.content.media_asset_id ?? null,
+            alt_text: block.content.alt_text ?? "",
+            caption: block.content.caption ?? null,
+            public_url: block.content.public_url ?? null,
+            // Structured image object with full asset info
+            image: block.content.image ?? {
+              media_asset_id:
+                block.media_asset_id ?? block.content.media_asset_id ?? null,
+              url: block.content.public_url ?? null,
+              alt_text: block.content.alt_text ?? "",
+              title: "",
+              description: "",
+            },
+          };
+        } else if (block.type === "image-text") {
+          // Store image-text content
+          // Extract text content - handle both object and string formats
+          const textContent = block.content.text;
+          const textObject =
+            typeof textContent === "object" && textContent !== null
+              ? textContent
+              : {
+                  heading: "",
+                  body: typeof textContent === "string" ? textContent : "",
+                };
+
+          // Extract layout content
+          const layoutContent = block.content.layout;
+          const layoutObject =
+            typeof layoutContent === "object" && layoutContent !== null
+              ? layoutContent
+              : { imagePosition: "left" as const, imageWidth: 50 as const };
+
+          blockContent = {
+            media_asset_id:
+              block.media_asset_id ?? block.content.media_asset_id ?? null,
+            public_url: block.content.public_url ?? null,
+            alt_text: block.content.alt_text ?? "",
+            layout: {
+              imagePosition: layoutObject.imagePosition ?? "left",
+              imageWidth: layoutObject.imageWidth ?? 50,
+            },
+            text: {
+              heading: textObject.heading ?? "",
+              body: textObject.body ?? "",
+            },
+            ai_metadata: block.content.ai_metadata ?? null,
+          };
         }
 
         // Build the TextBlockContentJson object
@@ -7076,9 +9088,21 @@ const LessonBuilder: React.FC = () => {
           orderIndex: block.orderIndex,
           contentJson,
           learningGoal: null,
-          mediaType: null,
+          mediaType:
+            block.type === "image-centered" ||
+            block.type === "image-fullwidth" ||
+            block.type === "image-text"
+              ? "image"
+              : null,
           isCore: null,
           difficultyLevel: null,
+          // Pass media_asset_id for image blocks (FK to media_assets)
+          mediaAssetId:
+            block.type === "image-centered" ||
+            block.type === "image-fullwidth" ||
+            block.type === "image-text"
+              ? block.media_asset_id ?? null
+              : null,
         });
 
         // If the returned id is different from the block id, track it for update
@@ -7499,6 +9523,14 @@ const LessonBuilder: React.FC = () => {
                   blockComponent = <NumberedListBlock {...commonBlockProps} />;
                 } else if (block.type === "bullet-list") {
                   blockComponent = <BulletListBlock {...commonBlockProps} />;
+                } else if (block.type === "image-centered") {
+                  blockComponent = <ImageCenteredBlock {...commonBlockProps} />;
+                } else if (block.type === "image-fullwidth") {
+                  blockComponent = (
+                    <ImageFullWidthBlock {...commonBlockProps} />
+                  );
+                } else if (block.type === "image-text") {
+                  blockComponent = <ImageTextBlock {...commonBlockProps} />;
                 }
 
                 if (!blockComponent) return null;
@@ -7742,6 +9774,98 @@ const LessonBuilder: React.FC = () => {
                     </button>
                   ))}
                 </div>
+              ) : selectedCategory === "image" ? (
+                <div className="space-y-3">
+                  {IMAGE_TEMPLATES.map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      onClick={() => {
+                        if (tpl.id === "image_centered") {
+                          handleAddImageCenteredBlock();
+                        } else if (tpl.id === "image_fullwidth") {
+                          handleAddImageFullWidthBlock();
+                        } else if (tpl.id === "image_text") {
+                          handleAddImageTextBlock();
+                        }
+                      }}
+                      className="w-full bg-white rounded-lg border border-gray-200 hover:border-orange-500 hover:shadow-sm text-left overflow-hidden transition-all"
+                    >
+                      {/* Visual preview - different icons for each image type */}
+                      <div className="h-16 bg-gray-100 border-b border-gray-200 flex items-center justify-center">
+                        {tpl.id === "image_centered" ? (
+                          /* Centered image icon - small box in center */
+                          <div className="w-12 h-10 bg-gray-200 rounded border-2 border-dashed border-gray-300 flex items-center justify-center">
+                            <svg
+                              className="w-6 h-6 text-gray-400"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={1.5}
+                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                              />
+                            </svg>
+                          </div>
+                        ) : tpl.id === "image_fullwidth" ? (
+                          /* Full width image icon - wide box spanning width */
+                          <div className="w-full mx-3 h-10 bg-gray-200 rounded border-2 border-dashed border-gray-300 flex items-center justify-center">
+                            <svg
+                              className="w-6 h-6 text-gray-400"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={1.5}
+                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                              />
+                            </svg>
+                          </div>
+                        ) : (
+                          /* Image + Text icon - image box beside text lines */
+                          <div className="flex items-center gap-2 mx-3 w-full">
+                            {/* Image placeholder - same style as other image blocks */}
+                            <div className="w-12 h-10 bg-gray-200 rounded border-2 border-dashed border-gray-300 flex items-center justify-center flex-shrink-0">
+                              <svg
+                                className="w-5 h-5 text-gray-400"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={1.5}
+                                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                                />
+                              </svg>
+                            </div>
+                            {/* Text lines */}
+                            <div className="flex flex-col gap-1 flex-1">
+                              <div className="h-2 bg-gray-300 rounded w-full" />
+                              <div className="h-2 bg-gray-300 rounded w-4/5" />
+                              <div className="h-2 bg-gray-300 rounded w-3/5" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="px-3 py-2.5">
+                        <div className="text-sm font-medium text-gray-900">
+                          {tpl.title}
+                        </div>
+                        <div className="mt-1 text-xs text-gray-500 leading-relaxed">
+                          {tpl.description}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               ) : selectedCategory ? (
                 <div className="h-full flex items-center justify-center text-sm text-gray-500">
                   <div className="text-center">
@@ -7778,7 +9902,7 @@ const LessonBuilder: React.FC = () => {
           />
 
           {/* Modal */}
-          <div className="relative bg-white rounded-xl shadow-2xl w-[90vw] max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+          <div className="relative bg-white rounded-xl shadow-2xl w-[95vw] max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50">
               <div>
@@ -7789,6 +9913,99 @@ const LessonBuilder: React.FC = () => {
                   This is how learners will see your lesson
                 </p>
               </div>
+
+              {/* Preview Size Buttons */}
+              <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-1">
+                {/* Desktop */}
+                <button
+                  type="button"
+                  onClick={() => setPreviewWidth("desktop")}
+                  className={`p-2 rounded-md transition-colors ${
+                    previewWidth === "desktop"
+                      ? "bg-gray-100 text-gray-900"
+                      : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                  }`}
+                  title="Desktop (896px)"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <rect
+                      x="2"
+                      y="3"
+                      width="20"
+                      height="14"
+                      rx="2"
+                      strokeWidth="1.5"
+                    />
+                    <path
+                      d="M8 21h8M12 17v4"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+                {/* Tablet */}
+                <button
+                  type="button"
+                  onClick={() => setPreviewWidth("tablet")}
+                  className={`p-2 rounded-md transition-colors ${
+                    previewWidth === "tablet"
+                      ? "bg-gray-100 text-gray-900"
+                      : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                  }`}
+                  title="Tablet (768px)"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <rect
+                      x="4"
+                      y="2"
+                      width="16"
+                      height="20"
+                      rx="2"
+                      strokeWidth="1.5"
+                    />
+                    <circle cx="12" cy="18" r="1" fill="currentColor" />
+                  </svg>
+                </button>
+                {/* Mobile */}
+                <button
+                  type="button"
+                  onClick={() => setPreviewWidth("mobile")}
+                  className={`p-2 rounded-md transition-colors ${
+                    previewWidth === "mobile"
+                      ? "bg-gray-100 text-gray-900"
+                      : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                  }`}
+                  title="Mobile (375px)"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <rect
+                      x="6"
+                      y="2"
+                      width="12"
+                      height="20"
+                      rx="2"
+                      strokeWidth="1.5"
+                    />
+                    <circle cx="12" cy="18" r="1" fill="currentColor" />
+                  </svg>
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={() => setIsPreviewOpen(false)}
@@ -7799,333 +10016,496 @@ const LessonBuilder: React.FC = () => {
             </div>
 
             {/* Preview Content */}
-            <div className="flex-1 overflow-y-auto">
-              {/* Lesson Title */}
-              <div className="bg-white border-b border-gray-100 px-8 py-6">
-                <h1 className="text-3xl font-bold text-gray-900">
-                  {page?.title || "Untitled Lesson"}
-                </h1>
-              </div>
+            <div className="flex-1 overflow-y-auto bg-gray-200 flex justify-center">
+              {/* Preview Frame - resizable based on selected width */}
+              <div
+                className={`bg-white transition-all duration-300 shadow-lg ${
+                  previewWidth === "desktop"
+                    ? "w-full max-w-4xl"
+                    : previewWidth === "tablet"
+                    ? "w-[768px]"
+                    : "w-[375px]"
+                }`}
+                style={{
+                  minHeight: "100%",
+                }}
+              >
+                {/* Lesson Title */}
+                <div className="bg-white border-b border-gray-100 px-8 py-6">
+                  <h1 className="text-3xl font-bold text-gray-900">
+                    {page?.title || "Untitled Lesson"}
+                  </h1>
+                </div>
 
-              {/* Blocks */}
-              <div className="bg-gray-50">
-                {blocks
-                  .slice()
-                  .sort((a, b) => a.orderIndex - b.orderIndex)
-                  .map((block) => {
-                    // Get style classes and inline color
-                    const styleClasses = getBlockStyleClasses(block.style);
-                    const inlineBgColor =
-                      block.style === "custom" && block.customBackgroundColor
-                        ? block.customBackgroundColor
-                        : undefined;
-                    const layout = block.layout || DEFAULT_BLOCK_LAYOUT;
+                {/* Blocks */}
+                <div className="bg-gray-50">
+                  {blocks
+                    .slice()
+                    .sort((a, b) => a.orderIndex - b.orderIndex)
+                    .map((block) => {
+                      // Get style classes and inline color
+                      const styleClasses = getBlockStyleClasses(block.style);
+                      const inlineBgColor =
+                        block.style === "custom" && block.customBackgroundColor
+                          ? block.customBackgroundColor
+                          : undefined;
+                      const layout = block.layout || DEFAULT_BLOCK_LAYOUT;
 
-                    return (
-                      <AnimateOnView
-                        key={block.id}
-                        animation={block.content.animation as BlockAnimation}
-                        duration={
-                          block.content.animationDuration as AnimationDuration
-                        }
-                        className={`w-full ${styleClasses}`}
-                        style={
-                          inlineBgColor
-                            ? { backgroundColor: inlineBgColor }
-                            : undefined
-                        }
-                      >
-                        <div
-                          className={`${getContentWidthClasses(
-                            layout.contentWidth
-                          )} px-8`}
-                          style={{
-                            paddingTop: `${layout.paddingTop}px`,
-                            paddingBottom: `${layout.paddingBottom}px`,
-                          }}
+                      return (
+                        <AnimateOnView
+                          key={block.id}
+                          animation={block.content.animation as BlockAnimation}
+                          duration={
+                            block.content.animationDuration as AnimationDuration
+                          }
+                          className={`w-full ${styleClasses}`}
+                          style={
+                            inlineBgColor
+                              ? { backgroundColor: inlineBgColor }
+                              : undefined
+                          }
                         >
-                          {/* Heading */}
-                          {block.type === "heading" && (
-                            <div
-                              className="text-[40px] font-semibold leading-tight"
-                              dangerouslySetInnerHTML={{
-                                __html: block.content.heading || "",
-                              }}
-                            />
-                          )}
-
-                          {/* Subheading */}
-                          {block.type === "subheading" && (
-                            <div
-                              className="text-[30px] font-semibold leading-tight"
-                              dangerouslySetInnerHTML={{
-                                __html: block.content.subheading || "",
-                              }}
-                            />
-                          )}
-
-                          {/* Paragraph */}
-                          {block.type === "paragraph" && (
-                            <div
-                              className="prose prose-lg max-w-none"
-                              dangerouslySetInnerHTML={{
-                                __html: block.content.html || "",
-                              }}
-                            />
-                          )}
-
-                          {/* Paragraph with Heading */}
-                          {block.type === "paragraph-with-heading" && (
-                            <div>
+                          <div
+                            className={
+                              block.type === "image-fullwidth"
+                                ? "w-full"
+                                : `${getContentWidthClasses(
+                                    layout.contentWidth
+                                  )} px-8`
+                            }
+                            style={{
+                              paddingTop: `${layout.paddingTop}px`,
+                              paddingBottom: `${layout.paddingBottom}px`,
+                            }}
+                          >
+                            {/* Heading */}
+                            {block.type === "heading" && (
                               <div
-                                className="text-[40px] font-semibold leading-tight mb-4"
+                                className="text-[40px] font-semibold leading-tight"
                                 dangerouslySetInnerHTML={{
                                   __html: block.content.heading || "",
                                 }}
                               />
-                              <div
-                                className="prose prose-lg max-w-none"
-                                dangerouslySetInnerHTML={{
-                                  __html: block.content.html || "",
-                                }}
-                              />
-                            </div>
-                          )}
+                            )}
 
-                          {/* Paragraph with Subheading */}
-                          {block.type === "paragraph-with-subheading" && (
-                            <div>
+                            {/* Subheading */}
+                            {block.type === "subheading" && (
                               <div
-                                className="text-[30px] font-semibold leading-tight mb-4"
+                                className="text-[30px] font-semibold leading-tight"
                                 dangerouslySetInnerHTML={{
                                   __html: block.content.subheading || "",
                                 }}
                               />
+                            )}
+
+                            {/* Paragraph */}
+                            {block.type === "paragraph" && (
                               <div
                                 className="prose prose-lg max-w-none"
                                 dangerouslySetInnerHTML={{
                                   __html: block.content.html || "",
                                 }}
                               />
-                            </div>
-                          )}
+                            )}
 
-                          {/* Columns */}
-                          {block.type === "columns" && (
-                            <div className="flex flex-col md:flex-row gap-6 md:gap-8">
-                              <div
-                                className="flex-1 prose prose-lg max-w-none"
-                                dangerouslySetInnerHTML={{
-                                  __html: block.content.columnOneContent || "",
-                                }}
-                              />
-                              <div
-                                className="flex-1 prose prose-lg max-w-none"
-                                dangerouslySetInnerHTML={{
-                                  __html: block.content.columnTwoContent || "",
-                                }}
-                              />
-                            </div>
-                          )}
-
-                          {/* Table */}
-                          {block.type === "table" && (
-                            <div className="overflow-x-auto">
-                              {block.content.tableContent ? (
-                                <TablePreview
-                                  content={block.content.tableContent}
+                            {/* Paragraph with Heading */}
+                            {block.type === "paragraph-with-heading" && (
+                              <div>
+                                <div
+                                  className="text-[40px] font-semibold leading-tight mb-4"
+                                  dangerouslySetInnerHTML={{
+                                    __html: block.content.heading || "",
+                                  }}
                                 />
-                              ) : (
-                                <div className="text-gray-400 italic">
-                                  Empty table
-                                </div>
-                              )}
-                            </div>
-                          )}
+                                <div
+                                  className="prose prose-lg max-w-none"
+                                  dangerouslySetInnerHTML={{
+                                    __html: block.content.html || "",
+                                  }}
+                                />
+                              </div>
+                            )}
 
-                          {/* Ordered List (with nested support) */}
-                          {block.type === "numbered-list" && (
-                            <div className="space-y-4">
-                              {(block.content.listItems ?? []).map(
-                                (item, idx) => {
-                                  const startNum =
-                                    block.content.startNumber ?? 1;
-                                  const marker = getListMarker(
-                                    startNum + idx,
-                                    block.content.listStyle
-                                  );
-                                  // Staggered delay: each item waits longer (0.35s per item)
-                                  const itemDelay = 0.4 + idx * 0.35;
-                                  return (
-                                    <div
-                                      key={idx}
-                                      className="animate-list-item"
-                                      style={{
-                                        animationDelay: `${itemDelay}s`,
-                                      }}
-                                    >
-                                      {/* Top-level item with badge */}
-                                      <div className="flex items-start gap-4">
-                                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white font-semibold text-sm">
-                                          {marker}
-                                        </div>
-                                        <div className="flex-1 pt-2">
-                                          <div
-                                            className="prose prose-sm max-w-none [&>p]:m-0 [&>p:not(:last-child)]:mb-2 text-gray-800"
-                                            dangerouslySetInnerHTML={{
-                                              __html: item.body,
-                                            }}
-                                          />
-                                        </div>
-                                      </div>
+                            {/* Paragraph with Subheading */}
+                            {block.type === "paragraph-with-subheading" && (
+                              <div>
+                                <div
+                                  className="text-[30px] font-semibold leading-tight mb-4"
+                                  dangerouslySetInnerHTML={{
+                                    __html: block.content.subheading || "",
+                                  }}
+                                />
+                                <div
+                                  className="prose prose-lg max-w-none"
+                                  dangerouslySetInnerHTML={{
+                                    __html: block.content.html || "",
+                                  }}
+                                />
+                              </div>
+                            )}
 
-                                      {/* Nested children (level 2) */}
-                                      {item.children &&
-                                        item.children.length > 0 && (
-                                          <div className="ml-14 mt-3 space-y-3">
-                                            {item.children.map(
-                                              (child, childIdx) => {
-                                                const childMarker =
-                                                  getListMarker(
-                                                    childIdx + 1,
-                                                    block.content.subStyle ??
-                                                      "lower-alpha"
-                                                  );
-                                                // Child items also stagger after parent
-                                                const childDelay =
-                                                  itemDelay +
-                                                  0.2 +
-                                                  childIdx * 0.25;
-                                                return (
-                                                  <div
-                                                    key={childIdx}
-                                                    className="flex items-start gap-3 animate-list-item"
-                                                    style={{
-                                                      animationDelay: `${childDelay}s`,
-                                                    }}
-                                                  >
-                                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-400 text-white font-medium text-xs">
-                                                      {childMarker}
-                                                    </div>
-                                                    <div className="flex-1 pt-1">
-                                                      <div
-                                                        className="prose prose-sm max-w-none [&>p]:m-0 [&>p:not(:last-child)]:mb-2 text-gray-700"
-                                                        dangerouslySetInnerHTML={{
-                                                          __html: child.body,
-                                                        }}
-                                                      />
-                                                    </div>
-                                                  </div>
-                                                );
-                                              }
-                                            )}
+                            {/* Columns */}
+                            {block.type === "columns" && (
+                              <div className="flex flex-col md:flex-row gap-6 md:gap-8">
+                                <div
+                                  className="flex-1 prose prose-lg max-w-none"
+                                  dangerouslySetInnerHTML={{
+                                    __html:
+                                      block.content.columnOneContent || "",
+                                  }}
+                                />
+                                <div
+                                  className="flex-1 prose prose-lg max-w-none"
+                                  dangerouslySetInnerHTML={{
+                                    __html:
+                                      block.content.columnTwoContent || "",
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {/* Table */}
+                            {block.type === "table" && (
+                              <div className="overflow-x-auto">
+                                {block.content.tableContent ? (
+                                  <TablePreview
+                                    content={block.content.tableContent}
+                                  />
+                                ) : (
+                                  <div className="text-gray-400 italic">
+                                    Empty table
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Ordered List (with nested support) */}
+                            {block.type === "numbered-list" && (
+                              <div className="space-y-4">
+                                {(block.content.listItems ?? []).map(
+                                  (item, idx) => {
+                                    const startNum =
+                                      block.content.startNumber ?? 1;
+                                    const marker = getListMarker(
+                                      startNum + idx,
+                                      block.content.listStyle
+                                    );
+                                    // Staggered delay: each item waits longer (0.35s per item)
+                                    const itemDelay = 0.4 + idx * 0.35;
+                                    return (
+                                      <div
+                                        key={idx}
+                                        className="animate-list-item"
+                                        style={{
+                                          animationDelay: `${itemDelay}s`,
+                                        }}
+                                      >
+                                        {/* Top-level item with badge */}
+                                        <div className="flex items-start gap-4">
+                                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white font-semibold text-sm">
+                                            {marker}
                                           </div>
-                                        )}
-                                    </div>
-                                  );
-                                }
-                              )}
-                            </div>
-                          )}
-
-                          {/* Bullet List */}
-                          {block.type === "bullet-list" && (
-                            <div className="space-y-4">
-                              {(block.content.bulletItems ?? []).map(
-                                (item, idx) => {
-                                  // Staggered delay: each item waits longer
-                                  const itemDelay = 0.4 + idx * 0.35;
-                                  return (
-                                    <div
-                                      key={idx}
-                                      className="animate-list-item"
-                                      style={{
-                                        animationDelay: `${itemDelay}s`,
-                                      }}
-                                    >
-                                      {/* Top-level item with bullet */}
-                                      <div className="flex items-start gap-4">
-                                        <div
-                                          className="flex h-4 w-4 mt-1.5 shrink-0 items-center justify-center rounded-full"
-                                          style={{
-                                            backgroundColor:
-                                              block.content.bulletColor ||
-                                              "#f97316",
-                                          }}
-                                        />
-                                        <div className="flex-1">
-                                          <div
-                                            className="prose prose-sm max-w-none [&>p]:m-0 [&>p:not(:last-child)]:mb-2 text-gray-800"
-                                            dangerouslySetInnerHTML={{
-                                              __html: item.body,
-                                            }}
-                                          />
+                                          <div className="flex-1 pt-2">
+                                            <div
+                                              className="prose prose-sm max-w-none [&>p]:m-0 [&>p:not(:last-child)]:mb-2 text-gray-800"
+                                              dangerouslySetInnerHTML={{
+                                                __html: item.body,
+                                              }}
+                                            />
+                                          </div>
                                         </div>
-                                      </div>
 
-                                      {/* Nested children (level 2) */}
-                                      {item.children &&
-                                        item.children.length > 0 && (
-                                          <div className="ml-8 mt-3 space-y-3">
-                                            {item.children.map(
-                                              (child, childIdx) => {
-                                                // Child items also stagger after parent
-                                                const childDelay =
-                                                  itemDelay +
-                                                  0.2 +
-                                                  childIdx * 0.25;
-                                                return (
-                                                  <div
-                                                    key={childIdx}
-                                                    className="flex items-start gap-3 animate-list-item"
-                                                    style={{
-                                                      animationDelay: `${childDelay}s`,
-                                                    }}
-                                                  >
+                                        {/* Nested children (level 2) */}
+                                        {item.children &&
+                                          item.children.length > 0 && (
+                                            <div className="ml-14 mt-3 space-y-3">
+                                              {item.children.map(
+                                                (child, childIdx) => {
+                                                  const childMarker =
+                                                    getListMarker(
+                                                      childIdx + 1,
+                                                      block.content.subStyle ??
+                                                        "lower-alpha"
+                                                    );
+                                                  // Child items also stagger after parent
+                                                  const childDelay =
+                                                    itemDelay +
+                                                    0.2 +
+                                                    childIdx * 0.25;
+                                                  return (
                                                     <div
-                                                      className="flex h-3 w-3 mt-1.5 shrink-0 items-center justify-center rounded-full opacity-70"
+                                                      key={childIdx}
+                                                      className="flex items-start gap-3 animate-list-item"
                                                       style={{
-                                                        backgroundColor:
-                                                          block.content
-                                                            .bulletColor ||
-                                                          "#f97316",
+                                                        animationDelay: `${childDelay}s`,
                                                       }}
-                                                    />
-                                                    <div className="flex-1">
+                                                    >
+                                                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-400 text-white font-medium text-xs">
+                                                        {childMarker}
+                                                      </div>
+                                                      <div className="flex-1 pt-1">
+                                                        <div
+                                                          className="prose prose-sm max-w-none [&>p]:m-0 [&>p:not(:last-child)]:mb-2 text-gray-700"
+                                                          dangerouslySetInnerHTML={{
+                                                            __html: child.body,
+                                                          }}
+                                                        />
+                                                      </div>
+                                                    </div>
+                                                  );
+                                                }
+                                              )}
+                                            </div>
+                                          )}
+                                      </div>
+                                    );
+                                  }
+                                )}
+                              </div>
+                            )}
+
+                            {/* Bullet List */}
+                            {block.type === "bullet-list" && (
+                              <div className="space-y-4">
+                                {(block.content.bulletItems ?? []).map(
+                                  (item, idx) => {
+                                    // Staggered delay: each item waits longer
+                                    const itemDelay = 0.4 + idx * 0.35;
+                                    return (
+                                      <div
+                                        key={idx}
+                                        className="animate-list-item"
+                                        style={{
+                                          animationDelay: `${itemDelay}s`,
+                                        }}
+                                      >
+                                        {/* Top-level item with bullet */}
+                                        <div className="flex items-start gap-4">
+                                          <div
+                                            className="flex h-4 w-4 mt-1.5 shrink-0 items-center justify-center rounded-full"
+                                            style={{
+                                              backgroundColor:
+                                                block.content.bulletColor ||
+                                                "#f97316",
+                                            }}
+                                          />
+                                          <div className="flex-1">
+                                            <div
+                                              className="prose prose-sm max-w-none [&>p]:m-0 [&>p:not(:last-child)]:mb-2 text-gray-800"
+                                              dangerouslySetInnerHTML={{
+                                                __html: item.body,
+                                              }}
+                                            />
+                                          </div>
+                                        </div>
+
+                                        {/* Nested children (level 2) */}
+                                        {item.children &&
+                                          item.children.length > 0 && (
+                                            <div className="ml-8 mt-3 space-y-3">
+                                              {item.children.map(
+                                                (child, childIdx) => {
+                                                  // Child items also stagger after parent
+                                                  const childDelay =
+                                                    itemDelay +
+                                                    0.2 +
+                                                    childIdx * 0.25;
+                                                  return (
+                                                    <div
+                                                      key={childIdx}
+                                                      className="flex items-start gap-3 animate-list-item"
+                                                      style={{
+                                                        animationDelay: `${childDelay}s`,
+                                                      }}
+                                                    >
                                                       <div
-                                                        className="prose prose-sm max-w-none [&>p]:m-0 [&>p:not(:last-child)]:mb-2 text-gray-700"
-                                                        dangerouslySetInnerHTML={{
-                                                          __html: child.body,
+                                                        className="flex h-3 w-3 mt-1.5 shrink-0 items-center justify-center rounded-full opacity-70"
+                                                        style={{
+                                                          backgroundColor:
+                                                            block.content
+                                                              .bulletColor ||
+                                                            "#f97316",
                                                         }}
                                                       />
+                                                      <div className="flex-1">
+                                                        <div
+                                                          className="prose prose-sm max-w-none [&>p]:m-0 [&>p:not(:last-child)]:mb-2 text-gray-700"
+                                                          dangerouslySetInnerHTML={{
+                                                            __html: child.body,
+                                                          }}
+                                                        />
+                                                      </div>
                                                     </div>
-                                                  </div>
-                                                );
-                                              }
-                                            )}
-                                          </div>
-                                        )}
-                                    </div>
-                                  );
-                                }
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </AnimateOnView>
-                    );
-                  })}
+                                                  );
+                                                }
+                                              )}
+                                            </div>
+                                          )}
+                                      </div>
+                                    );
+                                  }
+                                )}
+                              </div>
+                            )}
 
-                {/* Empty state */}
-                {blocks.length === 0 && (
-                  <div className="flex items-center justify-center py-20 text-gray-400">
-                    <div className="text-center">
-                      <div className="text-4xl mb-2">📄</div>
-                      <p>No content yet</p>
+                            {/* Image Centered */}
+                            {block.type === "image-centered" && (
+                              <div className="flex flex-col items-center">
+                                {block.content.public_url ? (
+                                  <>
+                                    <img
+                                      src={block.content.public_url as string}
+                                      alt={
+                                        (block.content.alt_text as string) ||
+                                        "Image"
+                                      }
+                                      className="max-w-[600px] w-full h-auto rounded-lg"
+                                    />
+                                    {block.content.caption && (
+                                      <p className="mt-2 text-sm text-gray-600 italic text-center">
+                                        {block.content.caption as string}
+                                      </p>
+                                    )}
+                                  </>
+                                ) : (
+                                  <div className="py-4 text-center text-gray-400 italic text-sm">
+                                    Image not selected
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Image Full Width */}
+                            {block.type === "image-fullwidth" && (
+                              <div className="w-full">
+                                {block.content.public_url ? (
+                                  <>
+                                    <img
+                                      src={block.content.public_url as string}
+                                      alt={
+                                        (block.content.alt_text as string) ||
+                                        "Image"
+                                      }
+                                      className="w-full h-auto object-cover rounded-md"
+                                    />
+                                    {block.content.caption && (
+                                      <p className="mt-2 text-sm text-gray-600 italic text-center">
+                                        {block.content.caption as string}
+                                      </p>
+                                    )}
+                                  </>
+                                ) : (
+                                  <div className="py-4 text-center text-gray-400 italic text-sm">
+                                    Image not selected
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Image + Text */}
+                            {block.type === "image-text" &&
+                              (() => {
+                                const imagePosition =
+                                  (block.content.layout as any)
+                                    ?.imagePosition || "left";
+                                const imageWidth =
+                                  (block.content.layout as any)?.imageWidth ||
+                                  50;
+                                const textContent = block.content.text as
+                                  | { heading: string; body: string }
+                                  | undefined;
+                                const heading = textContent?.heading || "";
+                                const body = textContent?.body || "";
+
+                                const getImageWidthClass = () => {
+                                  switch (imageWidth) {
+                                    case 25:
+                                      return "w-1/4";
+                                    case 75:
+                                      return "w-3/4";
+                                    default:
+                                      return "w-1/2";
+                                  }
+                                };
+                                const getTextWidthClass = () => {
+                                  switch (imageWidth) {
+                                    case 25:
+                                      return "w-3/4";
+                                    case 75:
+                                      return "w-1/4";
+                                    default:
+                                      return "w-1/2";
+                                  }
+                                };
+
+                                const imageElement = block.content
+                                  .public_url ? (
+                                  <img
+                                    src={block.content.public_url as string}
+                                    alt={
+                                      (block.content.alt_text as string) ||
+                                      "Image"
+                                    }
+                                    className="w-full h-auto object-cover rounded-lg"
+                                  />
+                                ) : (
+                                  <div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center">
+                                    <span className="text-gray-400 text-sm">
+                                      No image
+                                    </span>
+                                  </div>
+                                );
+
+                                const textElement = (
+                                  <div className="flex flex-col">
+                                    {body && (
+                                      <div
+                                        className="prose prose-sm max-w-none text-gray-700"
+                                        dangerouslySetInnerHTML={{
+                                          __html: body,
+                                        }}
+                                      />
+                                    )}
+                                  </div>
+                                );
+
+                                return (
+                                  <div
+                                    className={`flex gap-6 ${
+                                      imagePosition === "right"
+                                        ? "flex-row-reverse"
+                                        : "flex-row"
+                                    }`}
+                                  >
+                                    <div className={getImageWidthClass()}>
+                                      {imageElement}
+                                    </div>
+                                    <div
+                                      className={`${getTextWidthClass()} flex items-center`}
+                                    >
+                                      {textElement}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                          </div>
+                        </AnimateOnView>
+                      );
+                    })}
+
+                  {/* Empty state */}
+                  {blocks.length === 0 && (
+                    <div className="flex items-center justify-center py-20 text-gray-400">
+                      <div className="text-center">
+                        <div className="text-4xl mb-2">📄</div>
+                        <p>No content yet</p>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
+                {/* End Blocks */}
               </div>
+              {/* End Preview Frame */}
             </div>
 
             {/* Footer */}

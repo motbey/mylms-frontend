@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { useEditor, EditorContent, BubbleMenu, Extension } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
@@ -225,6 +225,45 @@ const TipTapEditor: React.FC<TipTapEditorProps> = ({
       },
     },
   });
+
+  // Sync editor content when value prop changes
+  // This runs on EVERY render to handle remounting issues
+  useEffect(() => {
+    // DEBUG: Always log to see what's happening
+    console.log("TipTapEditor useEffect:", {
+      hasEditor: !!editor,
+      hasValue: !!value,
+      valuePreview: value?.substring(0, 40),
+    });
+    
+    if (!editor) {
+      console.log("TipTapEditor: No editor yet");
+      return;
+    }
+    if (!value) {
+      console.log("TipTapEditor: No value prop");
+      return;
+    }
+    
+    const currentHTML = editor.getHTML();
+    console.log("TipTapEditor: currentHTML =", currentHTML.substring(0, 60));
+    
+    // Check if editor is showing placeholder or empty content
+    const isEditorEmpty = 
+      currentHTML === '<p></p>' ||
+      currentHTML === `<p>${placeholder}</p>` ||
+      currentHTML === '<p>Start writing...</p>' ||
+      currentHTML === '<p>Enter body text...</p>' ||
+      currentHTML.trim() === '';
+    
+    console.log("TipTapEditor: isEditorEmpty =", isEditorEmpty);
+    
+    // If editor is empty but we have content, SET IT
+    if (isEditorEmpty && value.trim() !== '') {
+      console.log("TipTapEditor: Setting content NOW:", value.substring(0, 50));
+      editor.commands.setContent(value);
+    }
+  }, [editor, value, placeholder]);
 
   // State for color picker popover
   const [showColorPicker, setShowColorPicker] = useState(false);

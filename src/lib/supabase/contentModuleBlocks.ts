@@ -17,6 +17,7 @@ export interface ContentModuleBlockRow {
   difficulty_level: number;
   is_core: boolean;
   mbl_metadata: unknown | null;
+  media_asset_id: string | null; // FK to media_assets for image blocks
 }
 
 // ---------------------------------------------------------------------------
@@ -54,6 +55,7 @@ export interface UpsertContentModuleBlockParams {
   mediaType?: string | null;
   isCore?: boolean | null;
   difficultyLevel?: number | null;
+  mediaAssetId?: string | null; // FK to media_assets for image blocks
 }
 
 export async function upsertContentModuleBlock(
@@ -69,6 +71,7 @@ export async function upsertContentModuleBlock(
     mediaType = null,
     isCore = null,
     difficultyLevel = null,
+    mediaAssetId = null,
   } = params;
 
   // Map internal block types to DB enum values
@@ -94,6 +97,7 @@ export async function upsertContentModuleBlock(
     media_type: resolvedMediaType,
     is_core: resolvedIsCore,
     difficulty_level: resolvedDifficultyLevel,
+    media_asset_id: mediaAssetId, // FK to media_assets for image blocks
   };
 
   if (id) {
@@ -129,3 +133,19 @@ export async function deleteContentModuleBlock(blockId: string): Promise<void> {
     throw error;
   }
 }
+
+// ---------------------------------------------------------------------------
+// TODO: AI Integration with Media Assets
+// ---------------------------------------------------------------------------
+// When assembling lesson context for the AI, join content_module_blocks
+// to media_assets via media_asset_id so the AI can see image metadata.
+// Example SQL:
+//
+// select cmb.*, ma.alt_text, ma.title, ma.description, ma.tags,
+//        ma.behaviour_tag, ma.cognitive_skill, ma.learning_pattern, ma.difficulty
+// from content_module_blocks cmb
+// left join media_assets ma on ma.id = cmb.media_asset_id
+// where cmb.page_id = :page_id
+// order by cmb.order_index;
+//
+// This allows the AI to understand image content and generate better lessons.

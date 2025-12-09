@@ -1,0 +1,6 @@
+[functions.presign-image-upload]
+verify_jwt = false
+
+[functions.ai-generate-image-metadata]
+verify_jwt = false
+

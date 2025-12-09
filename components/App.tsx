@@ -35,6 +35,7 @@ import AdminReports from "../pages/admin/Reports";
 import AdminSettings from "../pages/admin/Settings";
 import AdminIntegrations from "../pages/admin/settings/Integrations";
 import NotificationsPage from "../pages/admin/NotificationsPage";
+import MediaLibraryPage from "../pages/admin/content/MediaLibrary";
 import ScormPlayer from "../pages/scorm/Player";
 
 export default function App() {
@@ -123,6 +124,10 @@ export default function App() {
             element={<AdminIntegrations />}
           />
           <Route path="/admin/notifications" element={<NotificationsPage />} />
+          <Route
+            path="/admin/content/media-library"
+            element={<MediaLibraryPage />}
+          />
         </Routes>
       </Layout>
     </HashRouter>

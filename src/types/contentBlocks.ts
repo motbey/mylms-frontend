@@ -67,6 +67,29 @@ export interface StructuredBlockContent {
   bulletStyle?: BulletStyleType;
   bulletSubStyle?: BulletStyleType; // Level-2 bullet style
   bulletColor?: string;
+  // For image-centered block
+  media_asset_id?: string | null;
+  alt_text?: string;
+  caption?: string | null;
+  public_url?: string | null;
+  // Structured image object with full asset info
+  image?: {
+    media_asset_id: string | null;
+    url: string | null;
+    alt_text: string;
+    title: string;
+    description: string;
+  };
+  // For image-text block
+  layout?: {
+    imagePosition: "left" | "right";
+    imageWidth: 25 | 50 | 75;
+  };
+  text?: {
+    heading: string;
+    body: string;
+  };
+  ai_metadata?: unknown;
 }
 
 /**

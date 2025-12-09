@@ -30,6 +30,10 @@ export const DocumentPlusIcon: React.FC<IconProps> = ({ className }) => React.cr
     React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", d: "M14 2H8a2 2 0 00-2 2v16a2 2 0 002 2h8a2 2 0 002-2V8l-4-6z" }),
     React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", d: "M14 2v6h6M12 10v8m4-4H8" })
 );
+const MediaLibraryIcon: React.FC<IconProps> = ({ className }) => React.createElement(
+    'svg', { xmlns: "http://www.w3.org/2000/svg", className: className || "h-10 w-10 text-secondary", fill: "none", viewBox: "0 0 24 24", stroke: "currentColor", strokeWidth: 1.5 },
+    React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", d: "M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" })
+);
 
 // --- Tile Configuration ---
 export type ContentTile = {
@@ -75,6 +79,13 @@ export const contentTiles: ContentTile[] = [
     description: "Create and manage custom forms and surveys.",
     to: "/admin/content/forms",
     icon: React.createElement(FormsIcon),
+  },
+  {
+    slug: SLUGS.CONTENT_MEDIA_LIBRARY,
+    label: "Media Library",
+    description: "Upload and manage images with AI metadata.",
+    to: "/admin/content/media-library",
+    icon: React.createElement(MediaLibraryIcon),
   },
 ];
 

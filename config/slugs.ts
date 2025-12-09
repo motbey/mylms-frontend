@@ -17,6 +17,7 @@ export const SLUGS = {
   CONTENT_FORMS: 'content.forms',
   CONTENT_WORKSHOPS: 'content.workshops',
   CONTENT_FORMS_CREATE: 'content.forms.create',
+  CONTENT_MEDIA_LIBRARY: 'content.media_library',
 } as const;
 
 // Create a TypeScript type from the SLUGS object values for type safety.
