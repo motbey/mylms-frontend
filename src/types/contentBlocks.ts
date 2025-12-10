@@ -90,6 +90,17 @@ export interface StructuredBlockContent {
     body: string;
   };
   ai_metadata?: unknown;
+  // For flashcards block
+  title?: string | null;
+  cards?: {
+    id: string;
+    frontHtml?: string;
+    backHtml?: string;
+    frontDisplayMode?: "text" | "centeredImage" | "fullCardImage";
+    backDisplayMode?: "text" | "centeredImage" | "fullCardImage";
+    frontImage?: { id: string; url: string; alt?: string } | null;
+    backImage?: { id: string; url: string; alt?: string } | null;
+  }[];
 }
 
 /**
