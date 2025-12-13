@@ -4,6 +4,7 @@ import React, {
   useState,
   useRef,
   useCallback,
+  useMemo,
 } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
@@ -48,6 +49,11 @@ import {
   BlockStyleMenu,
   type BlockStyle,
 } from "../../../src/components/blocks/BlockStyleMenu";
+
+// Import sorting activity types and components
+import type { SortingActivityContent } from "../../../src/components/blocks/sorting/sorting-types";
+import { SortingActivityLearner } from "../../../src/components/blocks/sorting/SortingActivityLearner";
+import SortingActivityEditor from "../../../src/components/blocks/sorting/SortingActivityEditor";
 
 // Import media assets
 import {
@@ -107,7 +113,8 @@ type LessonBlockType =
   | "image-centered"
   | "image-fullwidth"
   | "image-text"
-  | "flashcards";
+  | "flashcards"
+  | "sorting_activity";
 
 // Content shape for image-centered block
 interface ImageCenteredContent {
@@ -1025,6 +1032,8 @@ interface BlockMetadataPopoverProps {
   mblMetadata?: unknown; // Raw AI-generated metadata JSON from mbl_metadata column
   onMblMetadataCleared?: () => void; // Callback when mbl_metadata is cleared from database
   onMblMetadataUpdated?: (mblMetadata: unknown) => void; // Callback when AI generates new mbl_metadata
+  moduleId?: string | null;
+  pageId?: string | null;
 }
 
 const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
@@ -1038,6 +1047,8 @@ const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
   mblMetadata,
   onMblMetadataCleared,
   onMblMetadataUpdated,
+  moduleId,
+  pageId,
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -1129,6 +1140,26 @@ const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
     });
   };
 
+  const aiSupportedBlockTypes = useMemo(
+    () => [
+      "paragraph",
+      "heading",
+      "subheading",
+      "paragraph-with-heading",
+      "paragraph-with-subheading",
+      "columns",
+      "table",
+      "numbered-list",
+      "bullet-list",
+      "image-centered",
+      "image-fullwidth",
+      "image-text",
+      "flashcards",
+      "sorting_activity",
+    ],
+    []
+  );
+
   // Handle AI metadata generation
   // Only works when block has been saved to the database (savedToDb === true)
   const dbBlockId = savedToDb ? blockId : null;
@@ -1163,6 +1194,9 @@ const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
   };
 
   const handleGenerateWithAI = async () => {
+    if (!aiSupportedBlockTypes.includes(blockType)) {
+      return;
+    }
     if (!dbBlockId) {
       setAiError("Please save the lesson before generating AI metadata.");
       return;
@@ -1754,181 +1788,205 @@ const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
           />
         </div>
 
-        {/* Generate with AI button */}
-        <button
-          type="button"
-          onClick={handleGenerateWithAI}
-          disabled={isGenerating || !dbBlockId}
-          className="mt-4 w-full rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-        >
-          {isGenerating ? "Generating…" : "Generate with AI"}
-        </button>
-        {aiError && <p className="mt-2 text-xs text-red-600">{aiError}</p>}
+        {console.log("[metadata-render]", {
+          type: blockType,
+          aiSupported: aiSupportedBlockTypes.includes(blockType),
+        })}
 
-        {/* Show AI output button */}
-        {mblMetadata && (
-          <button
-            type="button"
-            onClick={() => setShowAiOutput(!showAiOutput)}
-            className="mt-2 w-full rounded-md border border-purple-300 bg-purple-50 px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100 transition-colors"
-          >
-            {showAiOutput ? "Hide AI output" : "Show AI output"}
-          </button>
-        )}
+        {console.log("[metadata-ai-gate]", {
+          type: blockType,
+          aiSupported: aiSupportedBlockTypes.includes(blockType),
+          savedToDb,
+          blockId,
+          moduleId,
+          pageId,
+          hasGenerateHandler: typeof handleGenerateWithAI === "function",
+          hasSanityHandler: typeof handleSanityCheck === "function",
+          aiInputLen: (blockContent || "").length,
+          hasMblMetadata: !!mblMetadata,
+        })}
 
-        {/* AI output JSON display */}
-        {showAiOutput && mblMetadata && (
-          <div className="mt-2 p-3 bg-slate-900 rounded-lg overflow-auto max-h-48">
-            <pre className="text-xs text-green-400 whitespace-pre-wrap break-words font-mono">
-              {JSON.stringify(mblMetadata, null, 2)}
-            </pre>
-          </div>
-        )}
+        {aiSupportedBlockTypes.includes(blockType) && (
+          <>
+            {/* Generate with AI button */}
+            <button
+              type="button"
+              onClick={handleGenerateWithAI}
+              disabled={isGenerating || !dbBlockId}
+              className="mt-4 w-full rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            >
+              {isGenerating ? "Generating…" : "Generate with AI"}
+            </button>
+            {aiError && <p className="mt-2 text-xs text-red-600">{aiError}</p>}
 
-        {/* Sanity Check button - show when AI metadata exists */}
-        {mblMetadata && (
-          <button
-            type="button"
-            onClick={handleSanityCheck}
-            disabled={isSanityChecking}
-            className="mt-2 w-full rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-          >
-            {isSanityChecking ? "Checking..." : <>🔍 Run Sanity Check</>}
-          </button>
-        )}
-        {sanityError && (
-          <p className="mt-2 text-xs text-red-600">{sanityError}</p>
-        )}
+            {/* Show AI output button */}
+            {mblMetadata && (
+              <button
+                type="button"
+                onClick={() => setShowAiOutput(!showAiOutput)}
+                className="mt-2 w-full rounded-md border border-purple-300 bg-purple-50 px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+              >
+                {showAiOutput ? "Hide AI output" : "Show AI output"}
+              </button>
+            )}
 
-        {/* Sanity Check Results - Diff View Panel */}
-        {sanityReview && (
-          <div className="mt-3 rounded-lg border-2 border-blue-200 bg-slate-50 overflow-hidden">
-            {/* Header */}
-            <div className="px-3 py-2 bg-blue-100 border-b border-blue-200">
-              <span className="text-sm font-semibold text-blue-900">
-                {Object.keys(sanityReview.fields).length === 0
-                  ? "✅ No issues found!"
-                  : (() => {
-                      const count = Object.keys(sanityReview.fields).length;
-                      return `⚠️ ${count} suggestion${count > 1 ? "s" : ""}`;
-                    })()}
-              </span>
-            </div>
+            {/* AI output JSON display */}
+            {showAiOutput && mblMetadata && (
+              <div className="mt-2 p-3 bg-slate-900 rounded-lg overflow-auto max-h-48">
+                <pre className="text-xs text-green-400 whitespace-pre-wrap break-words font-mono">
+                  {JSON.stringify(mblMetadata, null, 2)}
+                </pre>
+              </div>
+            )}
 
-            {/* Field suggestions */}
-            {Object.keys(sanityReview.fields).length > 0 && (
-              <div className="p-3 space-y-3">
-                {Object.entries(sanityReview.fields).map(
-                  ([fieldName, field]: [
-                    string,
-                    {
-                      original_value: string;
-                      suggested_value: string;
-                      reason: string;
-                      confidence?: number;
-                      _decision: "accept" | "ignore";
-                    }
-                  ]) => (
-                    <div
-                      key={fieldName}
-                      className={`p-3 rounded-lg border-2 ${
-                        field._decision === "accept"
-                          ? "border-green-200 bg-green-50"
-                          : "border-slate-200 bg-white"
-                      }`}
-                    >
-                      {/* Field name header */}
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-semibold text-sm text-slate-800 capitalize">
-                          {fieldName.replace(/_/g, " ")}
-                        </span>
-                        {/* Decision dropdown */}
-                        <select
-                          value={field._decision}
-                          onChange={(e) =>
-                            handleSanityDecisionChange(
-                              fieldName,
-                              e.target.value as "accept" | "ignore"
-                            )
-                          }
-                          className={`text-xs font-medium px-2 py-1 rounded border ${
+            {/* Sanity Check button - show when AI metadata exists */}
+            {mblMetadata && (
+              <button
+                type="button"
+                onClick={handleSanityCheck}
+                disabled={isSanityChecking}
+                className="mt-2 w-full rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              >
+                {isSanityChecking ? "Checking..." : <>🔍 Run Sanity Check</>}
+              </button>
+            )}
+            {sanityError && (
+              <p className="mt-2 text-xs text-red-600">{sanityError}</p>
+            )}
+
+            {/* Sanity Check Results - Diff View Panel */}
+            {sanityReview && (
+              <div className="mt-3 rounded-lg border-2 border-blue-200 bg-slate-50 overflow-hidden">
+                {/* Header */}
+                <div className="px-3 py-2 bg-blue-100 border-b border-blue-200">
+                  <span className="text-sm font-semibold text-blue-900">
+                    {Object.keys(sanityReview.fields).length === 0
+                      ? "✅ No issues found!"
+                      : (() => {
+                          const count = Object.keys(sanityReview.fields).length;
+                          return `⚠️ ${count} suggestion${
+                            count > 1 ? "s" : ""
+                          }`;
+                        })()}
+                  </span>
+                </div>
+
+                {/* Field suggestions */}
+                {Object.keys(sanityReview.fields).length > 0 && (
+                  <div className="p-3 space-y-3">
+                    {Object.entries(sanityReview.fields).map(
+                      ([fieldName, field]: [
+                        string,
+                        {
+                          original_value: string;
+                          suggested_value: string;
+                          reason: string;
+                          confidence?: number;
+                          _decision: "accept" | "ignore";
+                        }
+                      ]) => (
+                        <div
+                          key={fieldName}
+                          className={`p-3 rounded-lg border-2 ${
                             field._decision === "accept"
-                              ? "bg-green-100 border-green-300 text-green-700"
-                              : "bg-slate-100 border-slate-300 text-slate-600"
+                              ? "border-green-200 bg-green-50"
+                              : "border-slate-200 bg-white"
                           }`}
                         >
-                          <option value="accept">✓ Accept</option>
-                          <option value="ignore">✗ Ignore</option>
-                        </select>
-                      </div>
+                          {/* Field name header */}
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-semibold text-sm text-slate-800 capitalize">
+                              {fieldName.replace(/_/g, " ")}
+                            </span>
+                            {/* Decision dropdown */}
+                            <select
+                              value={field._decision}
+                              onChange={(e) =>
+                                handleSanityDecisionChange(
+                                  fieldName,
+                                  e.target.value as "accept" | "ignore"
+                                )
+                              }
+                              className={`text-xs font-medium px-2 py-1 rounded border ${
+                                field._decision === "accept"
+                                  ? "bg-green-100 border-green-300 text-green-700"
+                                  : "bg-slate-100 border-slate-300 text-slate-600"
+                              }`}
+                            >
+                              <option value="accept">✓ Accept</option>
+                              <option value="ignore">✗ Ignore</option>
+                            </select>
+                          </div>
 
-                      {/* Diff view: original → suggested */}
-                      <div className="flex items-center gap-2 text-xs mb-2 p-2 bg-white rounded border border-slate-200">
-                        <span className="px-2 py-1 bg-red-100 text-red-700 rounded line-through">
-                          {field.original_value || "(empty)"}
-                        </span>
-                        <span className="text-slate-400">→</span>
-                        <span className="px-2 py-1 bg-green-100 text-green-700 rounded font-medium">
-                          {field.suggested_value}
-                        </span>
-                      </div>
+                          {/* Diff view: original → suggested */}
+                          <div className="flex items-center gap-2 text-xs mb-2 p-2 bg-white rounded border border-slate-200">
+                            <span className="px-2 py-1 bg-red-100 text-red-700 rounded line-through">
+                              {field.original_value || "(empty)"}
+                            </span>
+                            <span className="text-slate-400">→</span>
+                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded font-medium">
+                              {field.suggested_value}
+                            </span>
+                          </div>
 
-                      {/* Reason from AI */}
-                      <div className="text-xs text-slate-600 italic bg-slate-100 p-2 rounded">
-                        <span className="font-medium not-italic text-slate-500">
-                          Reason:{" "}
-                        </span>
-                        {field.reason}
-                      </div>
+                          {/* Reason from AI */}
+                          <div className="text-xs text-slate-600 italic bg-slate-100 p-2 rounded">
+                            <span className="font-medium not-italic text-slate-500">
+                              Reason:{" "}
+                            </span>
+                            {field.reason}
+                          </div>
 
-                      {/* Confidence indicator */}
-                      {field.confidence && (
-                        <div className="mt-2 text-[10px] text-slate-400">
-                          Confidence: {Math.round(field.confidence * 100)}%
+                          {/* Confidence indicator */}
+                          {field.confidence && (
+                            <div className="mt-2 text-[10px] text-slate-400">
+                              Confidence: {Math.round(field.confidence * 100)}%
+                            </div>
+                          )}
                         </div>
+                      )
+                    )}
+                  </div>
+                )}
+
+                {/* Apply Corrections button */}
+                {Object.keys(sanityReview.fields).length > 0 && (
+                  <div className="p-3 pt-0">
+                    <button
+                      type="button"
+                      onClick={handleApplyCorrections}
+                      disabled={isApplyingCorrections}
+                      className="w-full rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                    >
+                      {isApplyingCorrections ? (
+                        <>
+                          <span className="animate-spin">⏳</span>
+                          Applying...
+                        </>
+                      ) : (
+                        <>✓ Apply Corrections</>
                       )}
-                    </div>
-                  )
+                    </button>
+                    <p className="text-[10px] text-slate-500 text-center mt-1.5">
+                      {
+                        Object.values(sanityReview.fields).filter(
+                          (f: {
+                            original_value: string;
+                            suggested_value: string;
+                            reason: string;
+                            confidence?: number;
+                            _decision: "accept" | "ignore";
+                          }) => f._decision === "accept"
+                        ).length
+                      }{" "}
+                      of {Object.keys(sanityReview.fields).length} corrections
+                      selected
+                    </p>
+                  </div>
                 )}
               </div>
             )}
-
-            {/* Apply Corrections button */}
-            {Object.keys(sanityReview.fields).length > 0 && (
-              <div className="p-3 pt-0">
-                <button
-                  type="button"
-                  onClick={handleApplyCorrections}
-                  disabled={isApplyingCorrections}
-                  className="w-full rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-                >
-                  {isApplyingCorrections ? (
-                    <>
-                      <span className="animate-spin">⏳</span>
-                      Applying...
-                    </>
-                  ) : (
-                    <>✓ Apply Corrections</>
-                  )}
-                </button>
-                <p className="text-[10px] text-slate-500 text-center mt-1.5">
-                  {
-                    Object.values(sanityReview.fields).filter(
-                      (f: {
-                        original_value: string;
-                        suggested_value: string;
-                        reason: string;
-                        confidence?: number;
-                        _decision: "accept" | "ignore";
-                      }) => f._decision === "accept"
-                    ).length
-                  }{" "}
-                  of {Object.keys(sanityReview.fields).length} corrections
-                  selected
-                </p>
-              </div>
-            )}
-          </div>
+          </>
         )}
 
         {/* Clear button */}
@@ -1970,6 +2028,8 @@ interface HeadingBlockProps {
   onToggleMetadataPanel: () => void;
   isAppearancePanelOpen: boolean;
   onToggleAppearancePanel: () => void;
+  moduleId?: string | null;
+  pageId?: string | null;
 }
 
 const HeadingBlock: React.FC<HeadingBlockProps> = ({
@@ -1994,6 +2054,8 @@ const HeadingBlock: React.FC<HeadingBlockProps> = ({
   onToggleMetadataPanel,
   isAppearancePanelOpen,
   onToggleAppearancePanel,
+  moduleId,
+  pageId,
 }) => {
   const [styleMenuOpen, setStyleMenuOpen] = useState(false);
 
@@ -2248,6 +2310,8 @@ interface SubheadingBlockProps {
   onToggleMetadataPanel: () => void;
   isAppearancePanelOpen: boolean;
   onToggleAppearancePanel: () => void;
+  moduleId?: string | null;
+  pageId?: string | null;
 }
 
 const SubheadingBlock: React.FC<SubheadingBlockProps> = ({
@@ -2272,6 +2336,8 @@ const SubheadingBlock: React.FC<SubheadingBlockProps> = ({
   onToggleMetadataPanel,
   isAppearancePanelOpen,
   onToggleAppearancePanel,
+  moduleId,
+  pageId,
 }) => {
   const [styleMenuOpen, setStyleMenuOpen] = useState(false);
 
@@ -2550,6 +2616,8 @@ const ColumnsBlock: React.FC<ColumnsBlockProps> = ({
   onToggleMetadataPanel,
   isAppearancePanelOpen,
   onToggleAppearancePanel,
+  moduleId,
+  pageId,
 }) => {
   const [styleMenuOpen, setStyleMenuOpen] = useState(false);
 
@@ -3023,6 +3091,8 @@ const TableBlock: React.FC<TableBlockProps> = ({
   onToggleMetadataPanel,
   isAppearancePanelOpen,
   onToggleAppearancePanel,
+  moduleId,
+  pageId,
 }) => {
   const [styleMenuOpen, setStyleMenuOpen] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
@@ -3931,6 +4001,8 @@ const NumberedListBlock: React.FC<NumberedListBlockProps> = ({
   onToggleMetadataPanel,
   isAppearancePanelOpen,
   onToggleAppearancePanel,
+  moduleId,
+  pageId,
 }) => {
   const [styleMenuOpen, setStyleMenuOpen] = useState(false);
   // Toggle for style target: 'background' or 'numbers'
@@ -4647,6 +4719,8 @@ const BulletListBlock: React.FC<BulletListBlockProps> = ({
   onToggleMetadataPanel,
   isAppearancePanelOpen,
   onToggleAppearancePanel,
+  moduleId,
+  pageId,
 }) => {
   const [styleMenuOpen, setStyleMenuOpen] = useState(false);
 
@@ -5167,6 +5241,8 @@ const ParagraphBlock: React.FC<ParagraphBlockProps> = ({
   onToggleMetadataPanel,
   isAppearancePanelOpen,
   onToggleAppearancePanel,
+  moduleId,
+  pageId,
 }) => {
   const [styleMenuOpen, setStyleMenuOpen] = useState(false);
 
@@ -6899,6 +6975,8 @@ const ParagraphWithHeadingBlock: React.FC<ParagraphWithHeadingBlockProps> = ({
   onToggleMetadataPanel,
   isAppearancePanelOpen,
   onToggleAppearancePanel,
+  moduleId,
+  pageId,
 }) => {
   const [styleMenuOpen, setStyleMenuOpen] = useState(false);
 
@@ -7207,6 +7285,8 @@ const ParagraphWithSubheadingBlock: React.FC<
   onToggleMetadataPanel,
   isAppearancePanelOpen,
   onToggleAppearancePanel,
+  moduleId,
+  pageId,
 }) => {
   const [styleMenuOpen, setStyleMenuOpen] = useState(false);
 
@@ -7674,6 +7754,8 @@ interface FlashcardsBlockProps {
   onToggleMetadataPanel: () => void;
   isAppearancePanelOpen: boolean;
   onToggleAppearancePanel: () => void;
+  moduleId?: string | null;
+  pageId?: string | null;
 }
 
 /**
@@ -7747,6 +7829,23 @@ function summariseFlashcardsForAi(cards: FlashcardItem[]): string {
     : joined;
 }
 
+function summariseSortingForAi(content: SortingActivityContent): string {
+  const categories =
+    content?.categories?.map((c) => c.label).filter(Boolean) ?? [];
+  const items = content?.items?.map((i) => i.text).filter(Boolean) ?? [];
+
+  const catsPart =
+    categories.length > 0
+      ? `Categories (${categories.length}): ${categories.join(", ")}`
+      : "No categories yet";
+  const itemsPart =
+    items.length > 0
+      ? `Items (${items.length}): ${items.join(", ")}`
+      : "No items yet";
+
+  return `Sorting activity. ${catsPart}. ${itemsPart}.`;
+}
+
 const FlashcardsBlockInternal: React.FC<FlashcardsBlockProps> = ({
   block,
   onChange,
@@ -7769,6 +7868,8 @@ const FlashcardsBlockInternal: React.FC<FlashcardsBlockProps> = ({
   onToggleMetadataPanel,
   isAppearancePanelOpen,
   onToggleAppearancePanel,
+  moduleId,
+  pageId,
 }) => {
   const [styleMenuOpen, setStyleMenuOpen] = useState(false);
   const [flippedById, setFlippedById] = useState<Record<string, boolean>>({});
@@ -8138,6 +8239,8 @@ const FlashcardsBlockInternal: React.FC<FlashcardsBlockProps> = ({
             mblMetadata={block.mblMetadata}
             onMblMetadataCleared={onMblMetadataCleared}
             onMblMetadataUpdated={onMblMetadataUpdated}
+            moduleId={moduleId}
+            pageId={pageId}
           />
         )}
 
@@ -8633,12 +8736,376 @@ const FlashcardsBlockInternal: React.FC<FlashcardsBlockProps> = ({
   );
 };
 
+// SortingActivityBlockInternal - Editor component for sorting activity blocks
+interface SortingActivityBlockInternalProps {
+  block: LessonBlock;
+  onChange: (updated: LessonBlock) => void;
+  onStyleChange: (style: BlockStyle, customBackgroundColor?: string) => void;
+  onLayoutChange: (layout: BlockLayout) => void;
+  onMetadataChange: (metadata: BlockMetadata) => void;
+  onMblMetadataCleared?: () => void;
+  onMblMetadataUpdated?: (mblMetadata: unknown) => void;
+  onAnimationChange?: (animation: BlockAnimation) => void;
+  onDurationChange?: (duration: AnimationDuration) => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  isFormatPanelOpen: boolean;
+  onToggleFormatPanel: () => void;
+  isMetadataPanelOpen: boolean;
+  onToggleMetadataPanel: () => void;
+  isAppearancePanelOpen: boolean;
+  onToggleAppearancePanel: () => void;
+}
+
+const SortingActivityBlockInternal: React.FC<
+  SortingActivityBlockInternalProps
+> = ({
+  block,
+  onChange,
+  onStyleChange,
+  onLayoutChange,
+  onMetadataChange,
+  onMblMetadataCleared,
+  onMblMetadataUpdated,
+  onAnimationChange,
+  onDurationChange,
+  onDuplicate,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
+  isFormatPanelOpen,
+  onToggleFormatPanel,
+  isMetadataPanelOpen,
+  onToggleMetadataPanel,
+  isAppearancePanelOpen,
+  onToggleAppearancePanel,
+  moduleId,
+  pageId,
+}) => {
+  const [styleMenuOpen, setStyleMenuOpen] = useState(false);
+  const [isEditingSorting, setIsEditingSorting] = useState(false);
+  const blockHasMetadata = hasBlockMetadata(block.metadata);
+
+  // Extract content from block
+  const sortingContent = block.content as SortingActivityContent;
+  const title = sortingContent?.title || "Sorting activity";
+  const instructions =
+    sortingContent?.instructions || "Drag each item into the correct category.";
+  const categories = sortingContent?.categories || [];
+  const items = sortingContent?.items || [];
+
+  // Handler to update content via onChange
+  const handleContentChange = (updatedContent: SortingActivityContent) => {
+    onChange({
+      ...block,
+      content: updatedContent,
+    });
+  };
+
+  // Get background style
+  const bgStyle = block.style || "light";
+  const customBgColor = block.customBackgroundColor;
+  const bgColorClass =
+    bgStyle === "light"
+      ? "bg-white"
+      : bgStyle === "gray"
+      ? "bg-slate-100"
+      : bgStyle === "theme"
+      ? "bg-orange-500"
+      : bgStyle === "themeTint"
+      ? "bg-orange-50"
+      : bgStyle === "dark"
+      ? "bg-slate-700"
+      : bgStyle === "black"
+      ? "bg-slate-900"
+      : bgStyle === "custom" && customBgColor
+      ? ""
+      : "bg-white";
+
+  const textColorClass =
+    bgStyle === "dark" || bgStyle === "black" || bgStyle === "theme"
+      ? "text-white"
+      : "text-slate-900";
+
+  // Use block layout or fallback to defaults
+  const layout = block.layout || DEFAULT_BLOCK_LAYOUT;
+
+  return (
+    <div
+      className={`group relative rounded-xl border border-gray-200 overflow-visible transition-shadow hover:shadow-md ${bgColorClass}`}
+      style={
+        bgStyle === "custom" && customBgColor
+          ? { backgroundColor: customBgColor }
+          : undefined
+      }
+    >
+      {/* LEFT GUTTER TOOLBAR (matching Flashcards) */}
+      <div className="absolute left-4 top-6 flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 shadow-md z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        {/* Layout / Format */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFormatPanel();
+          }}
+          aria-label="Block format"
+          className={`inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+            isFormatPanelOpen
+              ? "text-[#ff7a00] bg-orange-50"
+              : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+          }`}
+        >
+          <PanelsLeftRight className="h-4 w-4" />
+        </button>
+
+        {/* Style (palette) */}
+        <div className="relative">
+          <button
+            type="button"
+            className={`inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+              styleMenuOpen
+                ? "text-[#ff7a00] bg-orange-50"
+                : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+            }`}
+            title="Block style"
+            onClick={(e) => {
+              e.stopPropagation();
+              setStyleMenuOpen((prev) => !prev);
+            }}
+          >
+            <Palette className="h-4 w-4" />
+          </button>
+          <BlockStyleMenu
+            open={styleMenuOpen}
+            onClose={() => setStyleMenuOpen(false)}
+            style={block.style}
+            customBackgroundColor={block.customBackgroundColor}
+            onChange={(newStyle, customColor) => {
+              onStyleChange(newStyle, customColor);
+              if (newStyle !== "custom") {
+                setStyleMenuOpen(false);
+              }
+            }}
+          />
+        </div>
+
+        {/* Appearance */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleAppearancePanel();
+          }}
+          className={`inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+            isAppearancePanelOpen
+              ? "text-[#ff7a00] bg-orange-50"
+              : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+          }`}
+          aria-label="Block appearance"
+          title="Appearance"
+        >
+          <Stars className="h-4 w-4" />
+        </button>
+
+        {/* MBL Metadata */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleMetadataPanel();
+          }}
+          className={`relative inline-flex items-center justify-center h-6 w-6 rounded-full transition-colors ${
+            isMetadataPanelOpen
+              ? "text-[#ff7a00] bg-orange-50"
+              : "text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50"
+          }`}
+          aria-label="Block metadata (learning fingerprint)"
+          title="Metadata"
+        >
+          <Database className="h-4 w-4" />
+          {blockHasMetadata && !isMetadataPanelOpen && (
+            <span
+              className="pointer-events-none absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[#ff7a00] ring-2 ring-white shadow-sm"
+              aria-hidden="true"
+            />
+          )}
+        </button>
+      </div>
+
+      {/* RIGHT GUTTER TOOLBAR (matching Flashcards) */}
+      <div className="absolute right-4 top-6 flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 shadow-md z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        {canMoveUp && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoveUp();
+            }}
+            className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50 transition-colors"
+            aria-label="Move block up"
+            title="Move up"
+          >
+            <ChevronUp className="h-4 w-4" />
+          </button>
+        )}
+        {canMoveDown && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoveDown();
+            }}
+            className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50 transition-colors"
+            aria-label="Move block down"
+            title="Move down"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsEditingSorting(true);
+          }}
+          className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50 transition-colors"
+          aria-label="Edit sorting activity"
+          title="Edit sorting activity"
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDuplicate();
+          }}
+          className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-[#ff7a00] hover:bg-slate-50 transition-colors"
+          aria-label="Duplicate block"
+          title="Duplicate"
+        >
+          <Copy className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="inline-flex items-center justify-center h-6 w-6 rounded-full text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+          aria-label="Delete block"
+          title="Delete"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Format Panel */}
+      {isFormatPanelOpen && (
+        <FormatPanel
+          layout={layout}
+          onChange={onLayoutChange}
+          onClose={onToggleFormatPanel}
+        />
+      )}
+
+      {/* Metadata Panel */}
+      {isMetadataPanelOpen && (
+        <BlockMetadataPopover
+          metadata={block.metadata || DEFAULT_BLOCK_METADATA}
+          onChange={onMetadataChange}
+          onClose={onToggleMetadataPanel}
+          blockId={block.id}
+          blockType={block.type}
+          blockContent={summariseSortingForAi(sortingContent)}
+          savedToDb={!!block.savedToDb}
+          mblMetadata={block.mblMetadata}
+          onMblMetadataCleared={onMblMetadataCleared}
+          onMblMetadataUpdated={onMblMetadataUpdated}
+          moduleId={moduleId}
+          pageId={pageId}
+        />
+      )}
+
+      {/* Block content matches learner preview (builder mode, non-interactive) */}
+      <BlockWrapper layout={layout}>
+        <SortingActivityLearner
+          mode="builder"
+          content={sortingContent}
+          moduleId={null}
+          pageId={null}
+          blockId={block.id}
+        />
+      </BlockWrapper>
+
+      {/* Sorting Activity Editor Modal */}
+      {isEditingSorting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setIsEditingSorting(false)}
+          />
+
+          {/* Modal */}
+          <div className="relative bg-white rounded-xl shadow-2xl w-[90vw] max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Edit Sorting Activity
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsEditingSorting(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Content - Sorting Activity Editor */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <SortingActivityEditor
+                blockId={block.id}
+                content={sortingContent}
+                onChange={handleContentChange}
+              />
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsEditingSorting(false)}
+                className="px-4 py-2 rounded-lg font-medium text-sm bg-[#ff7a00] hover:bg-[#e56d00] text-white transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Templates for the Interactive category
 const INTERACTIVE_TEMPLATES: BlockTemplate[] = [
   {
     id: "flashcards",
     title: "Flashcards",
     description: "Learners flip cards to reveal answers and explanations.",
+  },
+  {
+    id: "sorting_activity",
+    title: "Sorting Activity",
+    description: "Drag items into the correct category.",
   },
 ];
 
@@ -8782,6 +9249,7 @@ const LessonBuilder: React.FC = () => {
           "image-fullwidth",
           "image-text",
           "flashcards",
+          "sorting_activity",
         ];
         const hydratedBlocks: LessonBlock[] = rows
           .filter((row) => supportedDbTypes.includes(row.type))
@@ -9023,6 +9491,60 @@ const LessonBuilder: React.FC = () => {
             }
 
             // ---------------------------------------------------------------
+            // Handle sorting activity blocks
+            // ---------------------------------------------------------------
+            if (row.type === "sorting_activity") {
+              const rawContent =
+                typeof json?.content === "object" && json?.content !== null
+                  ? json.content
+                  : {};
+
+              const savedStyle = json?.style?.style ?? "light";
+              const savedCustomColor =
+                json?.style?.customBackgroundColor ?? undefined;
+              const savedAnimation = (json as any)?.animation ?? "none";
+              const savedAnimationDuration =
+                (json as any)?.animationDuration ?? "normal";
+
+              const categories = (rawContent as any).categories ?? [];
+              const items = (rawContent as any).items ?? [];
+              const settings = (rawContent as any).settings ?? {};
+
+              return {
+                id: row.id,
+                type: "sorting_activity" as LessonBlockType,
+                orderIndex: row.order_index,
+                style: savedStyle as BlockStyle,
+                customBackgroundColor: savedCustomColor,
+                layout: { ...DEFAULT_BLOCK_LAYOUT },
+                metadata: {
+                  behaviourTag: json?.metadata?.behaviourTag ?? null,
+                  cognitiveSkill: json?.metadata?.cognitiveSkill ?? null,
+                  learningPattern: json?.metadata?.learningPattern ?? null,
+                  difficulty: json?.metadata?.difficulty ?? null,
+                  notes: json?.metadata?.notes ?? null,
+                  source: json?.metadata?.source ?? null,
+                  fieldSources: json?.metadata?.fieldSources ?? undefined,
+                  aiExplanations: json?.metadata?.aiExplanations ?? undefined,
+                  aiConfidenceScores:
+                    json?.metadata?.aiConfidenceScores ?? undefined,
+                },
+                mblMetadata: row.mbl_metadata,
+                savedToDb: true,
+                content: {
+                  title: (rawContent as any).title ?? "",
+                  instructions: (rawContent as any).instructions ?? "",
+                  categories,
+                  items,
+                  settings,
+                  animation: savedAnimation as BlockAnimation,
+                  animationDuration:
+                    savedAnimationDuration as AnimationDuration,
+                },
+              };
+            }
+
+            // ---------------------------------------------------------------
             // Handle text-based blocks (row.type === "text")
             // ---------------------------------------------------------------
             // Determine internal block type from content_json.blockType
@@ -9205,9 +9727,18 @@ const LessonBuilder: React.FC = () => {
     setOpenFormatBlockId((prev) => (prev === blockId ? null : blockId));
   }, []);
 
-  const handleToggleMetadataPanel = useCallback((blockId: string) => {
-    setOpenMetadataBlockId((prev) => (prev === blockId ? null : blockId));
-  }, []);
+  const handleToggleMetadataPanel = useCallback(
+    (blockId: string) => {
+      const block = blocks.find((b) => b.id === blockId);
+      console.log("[metadata-open]", {
+        blockId: block?.id,
+        type: block?.type,
+        savedToDb: (block as any)?.savedToDb,
+      });
+      setOpenMetadataBlockId((prev) => (prev === blockId ? null : blockId));
+    },
+    [blocks]
+  );
 
   const handleToggleAppearancePanel = useCallback((blockId: string) => {
     setOpenAppearanceBlockId((prev) => (prev === blockId ? null : blockId));
@@ -9628,6 +10159,67 @@ const LessonBuilder: React.FC = () => {
 
   const handleAddFlashcardsBlock = () => {
     createFlashcardsBlockAtIndex(pendingInsertIndex);
+  };
+
+  // Create a new sorting activity block at a specific index or at the end
+  const createSortingActivityBlockAtIndex = (insertIndex: number | null) => {
+    setBlocks((prev) => {
+      const newBlock: LessonBlock = {
+        id: crypto.randomUUID(),
+        type: "sorting_activity",
+        orderIndex: 0, // will be recalculated
+        style: "light",
+        customBackgroundColor: undefined,
+        layout: { ...DEFAULT_BLOCK_LAYOUT },
+        metadata: { ...DEFAULT_BLOCK_METADATA },
+        content: {
+          title: "Sorting activity",
+          instructions: "Drag each item into the correct category.",
+          categories: [
+            { id: "cat-1", label: "Category 1" },
+            { id: "cat-2", label: "Category 2" },
+          ],
+          items: [
+            { id: "item-1", text: "Item 1", correctCategoryId: "cat-1" },
+            { id: "item-2", text: "Item 2", correctCategoryId: "cat-2" },
+            { id: "item-3", text: "Item 3", correctCategoryId: "cat-1" },
+          ],
+          settings: {
+            randomizeOrder: true,
+            showPerItemFeedback: true,
+          },
+        },
+      };
+
+      let newBlocks: LessonBlock[];
+
+      if (
+        insertIndex !== null &&
+        insertIndex >= 0 &&
+        insertIndex <= prev.length
+      ) {
+        newBlocks = [
+          ...prev.slice(0, insertIndex),
+          newBlock,
+          ...prev.slice(insertIndex),
+        ];
+      } else {
+        newBlocks = [...prev, newBlock];
+      }
+
+      return newBlocks.map((block, i) => ({
+        ...block,
+        orderIndex: i,
+      }));
+    });
+
+    setIsBlockLibraryOpen(false);
+    setSelectedCategory(null);
+    setPendingInsertIndex(null);
+  };
+
+  const handleAddSortingActivityBlock = () => {
+    createSortingActivityBlockAtIndex(pendingInsertIndex);
   };
 
   // Create a new image-centered block at a specific index or at the end
@@ -10057,7 +10649,7 @@ const LessonBuilder: React.FC = () => {
     setIsSaving(true);
     setSaveMessage(null);
 
-    // Define which block types are text-based and should be saved
+    // Define which block types are saved to content_module_blocks
     const textBlockTypes: LessonBlockType[] = [
       "paragraph",
       "heading",
@@ -10072,6 +10664,7 @@ const LessonBuilder: React.FC = () => {
       "image-fullwidth",
       "image-text",
       "flashcards",
+      "sorting_activity",
     ];
 
     // Track updated block IDs (for newly inserted blocks)
@@ -10086,8 +10679,8 @@ const LessonBuilder: React.FC = () => {
 
         // Build the content based on block type
         // For simple blocks, content is a string
-        // For compound blocks, content is a StructuredBlockContent object
-        let blockContent: string | StructuredBlockContent = "";
+        // For compound blocks, content is a StructuredBlockContent object (or custom content for interactive blocks)
+        let blockContent: any = "";
 
         if (block.type === "paragraph") {
           blockContent = block.content.html ?? "";
@@ -10224,6 +10817,9 @@ const LessonBuilder: React.FC = () => {
               backImage: card.backImage ?? null,
             })),
           };
+        } else if (block.type === "sorting_activity") {
+          // Store sorting activity content (categories/items/settings)
+          blockContent = block.content as SortingActivityContent;
         }
 
         // Build the TextBlockContentJson object
@@ -10263,8 +10859,7 @@ const LessonBuilder: React.FC = () => {
           mediaType:
             block.type === "image-centered" ||
             block.type === "image-fullwidth" ||
-            block.type === "image-text" ||
-            block.type === "flashcards"
+            block.type === "image-text"
               ? "image"
               : null,
           isCore: null,
@@ -10706,7 +11301,19 @@ const LessonBuilder: React.FC = () => {
                   blockComponent = <ImageTextBlock {...commonBlockProps} />;
                 } else if (block.type === "flashcards") {
                   blockComponent = (
-                    <FlashcardsBlockInternal {...commonBlockProps} />
+                    <FlashcardsBlockInternal
+                      {...commonBlockProps}
+                      moduleId={moduleId ?? null}
+                      pageId={pageId ?? null}
+                    />
+                  );
+                } else if (block.type === "sorting_activity") {
+                  blockComponent = (
+                    <SortingActivityBlockInternal
+                      {...commonBlockProps}
+                      moduleId={moduleId ?? null}
+                      pageId={pageId ?? null}
+                    />
                   );
                 }
 
@@ -11052,26 +11659,53 @@ const LessonBuilder: React.FC = () => {
                       onClick={() => {
                         if (tpl.id === "flashcards") {
                           handleAddFlashcardsBlock();
+                        } else if (tpl.id === "sorting_activity") {
+                          handleAddSortingActivityBlock();
                         }
                       }}
                       className="w-full bg-white rounded-lg border border-gray-200 hover:border-orange-500 hover:shadow-sm text-left overflow-hidden transition-all"
                     >
-                      {/* Visual preview - flashcards icon */}
+                      {/* Visual preview - different for each template */}
                       <div className="h-16 bg-gray-100 border-b border-gray-200 flex items-center justify-center">
-                        <div className="flex gap-2">
-                          {/* Card 1 */}
-                          <div className="w-10 h-12 bg-white rounded border border-gray-300 shadow-sm flex items-center justify-center transform -rotate-6">
-                            <span className="text-lg">?</span>
+                        {tpl.id === "flashcards" ? (
+                          <div className="flex gap-2">
+                            {/* Card 1 */}
+                            <div className="w-10 h-12 bg-white rounded border border-gray-300 shadow-sm flex items-center justify-center transform -rotate-6">
+                              <span className="text-lg">?</span>
+                            </div>
+                            {/* Card 2 */}
+                            <div className="w-10 h-12 bg-white rounded border border-gray-300 shadow-sm flex items-center justify-center transform rotate-3">
+                              <span className="text-lg">💡</span>
+                            </div>
+                            {/* Card 3 */}
+                            <div className="w-10 h-12 bg-orange-50 rounded border border-orange-300 shadow-sm flex items-center justify-center transform rotate-6">
+                              <span className="text-lg">✓</span>
+                            </div>
                           </div>
-                          {/* Card 2 */}
-                          <div className="w-10 h-12 bg-white rounded border border-gray-300 shadow-sm flex items-center justify-center transform rotate-3">
-                            <span className="text-lg">💡</span>
+                        ) : tpl.id === "sorting_activity" ? (
+                          <div className="flex gap-3 items-end">
+                            {/* Left category box */}
+                            <div className="w-12 h-10 bg-blue-50 rounded border-2 border-dashed border-blue-300 flex items-center justify-center">
+                              <span className="text-xs text-blue-600 font-medium">
+                                A
+                              </span>
+                            </div>
+                            {/* Draggable item */}
+                            <div className="w-14 h-8 bg-white rounded border border-gray-300 shadow-sm flex items-center justify-center transform -translate-y-2">
+                              <span className="text-xs text-gray-600">
+                                Item
+                              </span>
+                            </div>
+                            {/* Right category box */}
+                            <div className="w-12 h-10 bg-green-50 rounded border-2 border-dashed border-green-300 flex items-center justify-center">
+                              <span className="text-xs text-green-600 font-medium">
+                                B
+                              </span>
+                            </div>
                           </div>
-                          {/* Card 3 */}
-                          <div className="w-10 h-12 bg-orange-50 rounded border border-orange-300 shadow-sm flex items-center justify-center transform rotate-6">
-                            <span className="text-lg">✓</span>
-                          </div>
-                        </div>
+                        ) : (
+                          <div className="text-2xl">📦</div>
+                        )}
                       </div>
                       <div className="px-3 py-2.5">
                         <div className="text-sm font-medium text-gray-900">
@@ -11718,6 +12352,18 @@ const LessonBuilder: React.FC = () => {
                                 previewWidth={previewWidth}
                                 blockId={block.id}
                                 pageId={pageId}
+                              />
+                            )}
+
+                            {/* Sorting Activity */}
+                            {block.type === "sorting_activity" && (
+                              <SortingActivityLearner
+                                moduleId={moduleId ?? null}
+                                pageId={pageId}
+                                blockId={block.id}
+                                content={
+                                  block.content as SortingActivityContent
+                                }
                               />
                             )}
                           </div>

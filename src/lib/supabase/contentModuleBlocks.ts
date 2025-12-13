@@ -1,6 +1,6 @@
-import { supabase } from '../../../lib/supabaseClient';
-import type { TextBlockContentJson } from '../../types/contentBlocks';
-import { TEXT_BLOCK_TYPES } from '../../constants/textBlockTypes';
+import { supabase } from "../../../lib/supabaseClient";
+import type { TextBlockContentJson } from "../../types/contentBlocks";
+import { TEXT_BLOCK_TYPES } from "../../constants/textBlockTypes";
 
 // ---------------------------------------------------------------------------
 // Types for reading blocks from the database
@@ -28,13 +28,13 @@ export async function getContentModuleBlocksByPageId(
   pageId: string
 ): Promise<ContentModuleBlockRow[]> {
   const { data, error } = await supabase
-    .from('content_module_blocks')
-    .select('*')
-    .eq('page_id', pageId)
-    .order('order_index', { ascending: true });
+    .from("content_module_blocks")
+    .select("*")
+    .eq("page_id", pageId)
+    .order("order_index", { ascending: true });
 
   if (error) {
-    console.error('Error fetching content_module_blocks', error);
+    console.error("Error fetching content_module_blocks", error);
     throw error;
   }
 
@@ -46,11 +46,11 @@ export async function getContentModuleBlocksByPageId(
 // ---------------------------------------------------------------------------
 
 export interface UpsertContentModuleBlockParams {
-  id?: string;                 // if provided → update, otherwise insert
-  pageId: string;              // maps to page_id
-  type: string;                // existing block type value used in the app
-  orderIndex: number;          // maps to order_index
-  contentJson: TextBlockContentJson;
+  id?: string; // if provided → update, otherwise insert
+  pageId: string; // maps to page_id
+  type: string; // existing block type value used in the app
+  orderIndex: number; // maps to order_index
+  contentJson: any;
   learningGoal?: string | null;
   mediaType?: string | null;
   isCore?: boolean | null;
@@ -76,17 +76,17 @@ export async function upsertContentModuleBlock(
 
   // Map internal block types to DB enum values
   // All text-based blocks map to "text" for the content_block_type enum
-  const dbType = TEXT_BLOCK_TYPES.includes(type) ? 'text' : type;
+  const dbType = TEXT_BLOCK_TYPES.includes(type) ? "text" : type;
 
   // Default media_type to "text" if not provided
-  const resolvedMediaType = mediaType ?? 'text';
+  const resolvedMediaType = mediaType ?? "text";
 
   // Default difficulty_level to 0 if not a number
   const resolvedDifficultyLevel =
-    typeof difficultyLevel === 'number' ? difficultyLevel : 0;
+    typeof difficultyLevel === "number" ? difficultyLevel : 0;
 
   // Default is_core to false if not a boolean
-  const resolvedIsCore = typeof isCore === 'boolean' ? isCore : false;
+  const resolvedIsCore = typeof isCore === "boolean" ? isCore : false;
 
   const payload: any = {
     page_id: pageId,
@@ -105,13 +105,13 @@ export async function upsertContentModuleBlock(
   }
 
   const { data, error } = await supabase
-    .from('content_module_blocks')
+    .from("content_module_blocks")
     .upsert(payload)
     .select()
     .single();
 
   if (error) {
-    console.error('Error upserting content_module_blocks', error);
+    console.error("Error upserting content_module_blocks", error);
     throw error;
   }
 
@@ -124,12 +124,12 @@ export async function upsertContentModuleBlock(
 
 export async function deleteContentModuleBlock(blockId: string): Promise<void> {
   const { error } = await supabase
-    .from('content_module_blocks')
+    .from("content_module_blocks")
     .delete()
-    .eq('id', blockId);
+    .eq("id", blockId);
 
   if (error) {
-    console.error('Error deleting content_module_block', error);
+    console.error("Error deleting content_module_block", error);
     throw error;
   }
 }
