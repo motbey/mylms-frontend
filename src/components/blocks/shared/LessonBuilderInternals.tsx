@@ -616,8 +616,7 @@ export const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
 
   // Sanity check state
   const [isSanityChecking, setIsSanityChecking] = useState(false);
-  const [isApplyingCorrections, setIsApplyingCorrections] =
-    useState(false);
+  const [isApplyingCorrections, setIsApplyingCorrections] = useState(false);
   const [sanityReview, setSanityReview] = useState<{
     fields: {
       [field_name: string]: {
@@ -711,6 +710,7 @@ export const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
       "image-text",
       "flashcards",
       "sorting_activity",
+      "accordion",
     ],
     []
   );
@@ -908,15 +908,9 @@ export const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
       };
 
       const { data, error } = await supabase.functions.invoke(
-        "ai-sanity-check",
+        "ai-sanity-check?debug=1",
         { body: payload }
       );
-
-      console.log("AI-2 sanity-check raw response:", {
-        data,
-        error,
-        typeOfData: typeof data,
-      });
 
       if (error) {
         console.error("Sanity check error (Supabase):", error);
@@ -953,8 +947,6 @@ export const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
       let suggestions = Array.isArray((parsedData as any).suggestions)
         ? (parsedData as any).suggestions
         : [];
-
-      console.log("AI-2 suggestions from response:", suggestions);
 
       // FALLBACK: If no suggestions in response, query the database
       if (suggestions.length === 0) {
@@ -1541,4 +1533,3 @@ export const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
     </div>
   );
 };
-
