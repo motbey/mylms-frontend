@@ -66,6 +66,17 @@ import { SortingActivityBlock } from "../../../src/components/blocks/interactive
 import { AccordionBlock } from "../../../src/components/blocks/interactive/accordion/AccordionBlock";
 import type { AccordionContent } from "../../../src/components/blocks/interactive/accordion/accordion-types";
 import {
+  TabsLearner,
+  TabsBlock,
+} from "../../../src/components/blocks/interactive/tabs";
+import type { TabsContent } from "../../../src/components/blocks/interactive/tabs";
+import {
+  ImageCompareLearner,
+  ImageCompareBlock,
+  getDefaultImageCompareContent,
+} from "../../../src/components/blocks/interactive/image-compare";
+import type { ImageCompareContent } from "../../../src/components/blocks/interactive/image-compare";
+import {
   DEFAULT_TABLE_CONTENT,
   TableBlock,
 } from "../../../src/components/blocks/text/TableBlock";
@@ -130,7 +141,9 @@ type LessonBlockType =
   | "image-text"
   | "flashcards"
   | "sorting_activity"
-  | "accordion";
+  | "accordion"
+  | "tabs"
+  | "image_compare";
 
 // Content shape for image-centered block
 interface ImageCenteredContent {
@@ -912,6 +925,16 @@ const INTERACTIVE_TEMPLATES: BlockTemplate[] = [
     title: "Accordion",
     description: "Expandable sections learners can open and close.",
   },
+  {
+    id: "tabs",
+    title: "Tabs",
+    description: "Organise content into clickable tabs.",
+  },
+  {
+    id: "image_compare",
+    title: "Image Compare",
+    description: "Compare two images with a draggable before/after slider.",
+  },
 ];
 
 const LessonBuilder: React.FC = () => {
@@ -1058,6 +1081,8 @@ const LessonBuilder: React.FC = () => {
           "flashcards",
           "sorting_activity",
           "accordion",
+          "tabs",
+          "image_compare",
         ];
         const hydratedBlocks: LessonBlock[] = rows
           .filter((row) => supportedDbTypes.includes(row.type))
@@ -1391,6 +1416,131 @@ const LessonBuilder: React.FC = () => {
                 savedToDb: true,
                 content: {
                   ...(rawContent as any),
+                  animation: savedAnimation as BlockAnimation,
+                  animationDuration:
+                    savedAnimationDuration as AnimationDuration,
+                },
+              };
+            }
+
+            // ---------------------------------------------------------------
+            // Handle tabs blocks
+            // ---------------------------------------------------------------
+            if (row.type === "tabs") {
+              const rawContent =
+                typeof json?.content === "object" && json?.content !== null
+                  ? json.content
+                  : {};
+
+              const savedStyle = json?.style?.style ?? "light";
+              const savedCustomColor =
+                json?.style?.customBackgroundColor ?? undefined;
+              const savedAnimation = (json as any)?.animation ?? "none";
+              const savedAnimationDuration =
+                (json as any)?.animationDuration ?? "normal";
+
+              const rawTabs = (rawContent as any).tabs ?? [];
+              const rawSettings = (rawContent as any).settings ?? {};
+
+              const normalizedTabs = Array.isArray(rawTabs)
+                ? rawTabs.map((t: any, idx: number) => ({
+                    id: t?.id ?? `tab-${idx + 1}`,
+                    title: t?.title ?? "",
+                    content: t?.content ?? "",
+                    image: t?.image ?? null,
+                  }))
+                : [];
+
+              const tabsContent: TabsContent & Record<string, unknown> = {
+                title: (rawContent as any).title ?? "",
+                tabs: normalizedTabs,
+                settings: {
+                  style: rawSettings?.style ?? "light",
+                  allowKeyboardNav: rawSettings?.allowKeyboardNav ?? true,
+                },
+              };
+
+              return {
+                id: row.id,
+                type: "tabs" as LessonBlockType,
+                orderIndex: row.order_index,
+                style: savedStyle as BlockStyle,
+                customBackgroundColor: savedCustomColor,
+                layout: { ...DEFAULT_BLOCK_LAYOUT },
+                metadata: {
+                  behaviourTag: json?.metadata?.behaviourTag ?? null,
+                  cognitiveSkill: json?.metadata?.cognitiveSkill ?? null,
+                  learningPattern: json?.metadata?.learningPattern ?? null,
+                  difficulty: json?.metadata?.difficulty ?? null,
+                  notes: json?.metadata?.notes ?? null,
+                  source: json?.metadata?.source ?? null,
+                  fieldSources: json?.metadata?.fieldSources ?? undefined,
+                  aiExplanations: json?.metadata?.aiExplanations ?? undefined,
+                  aiConfidenceScores:
+                    json?.metadata?.aiConfidenceScores ?? undefined,
+                },
+                mblMetadata: row.mbl_metadata,
+                savedToDb: true,
+                content: {
+                  ...tabsContent,
+                  animation: savedAnimation as BlockAnimation,
+                  animationDuration:
+                    savedAnimationDuration as AnimationDuration,
+                },
+              };
+            }
+
+            // ---------------------------------------------------------------
+            // Handle image_compare blocks
+            // ---------------------------------------------------------------
+            if (row.type === "image_compare") {
+              const rawContent =
+                typeof json?.content === "object" && json?.content !== null
+                  ? json.content
+                  : {};
+
+              const savedStyle = json?.style?.style ?? "light";
+              const savedCustomColor =
+                json?.style?.customBackgroundColor ?? undefined;
+              const savedAnimation = (json as any)?.animation ?? "none";
+              const savedAnimationDuration =
+                (json as any)?.animationDuration ?? "normal";
+
+              const defaults = getDefaultImageCompareContent();
+
+              const compareContent: ImageCompareContent &
+                Record<string, unknown> = {
+                ...defaults,
+                ...(rawContent as any),
+                settings: {
+                  ...(defaults.settings ?? {}),
+                  ...(((rawContent as any).settings as any) ?? {}),
+                },
+              };
+
+              return {
+                id: row.id,
+                type: "image_compare" as LessonBlockType,
+                orderIndex: row.order_index,
+                style: savedStyle as BlockStyle,
+                customBackgroundColor: savedCustomColor,
+                layout: { ...DEFAULT_BLOCK_LAYOUT },
+                metadata: {
+                  behaviourTag: json?.metadata?.behaviourTag ?? null,
+                  cognitiveSkill: json?.metadata?.cognitiveSkill ?? null,
+                  learningPattern: json?.metadata?.learningPattern ?? null,
+                  difficulty: json?.metadata?.difficulty ?? null,
+                  notes: json?.metadata?.notes ?? null,
+                  source: json?.metadata?.source ?? null,
+                  fieldSources: json?.metadata?.fieldSources ?? undefined,
+                  aiExplanations: json?.metadata?.aiExplanations ?? undefined,
+                  aiConfidenceScores:
+                    json?.metadata?.aiConfidenceScores ?? undefined,
+                },
+                mblMetadata: row.mbl_metadata,
+                savedToDb: true,
+                content: {
+                  ...compareContent,
                   animation: savedAnimation as BlockAnimation,
                   animationDuration:
                     savedAnimationDuration as AnimationDuration,
@@ -2161,6 +2311,128 @@ const LessonBuilder: React.FC = () => {
     createAccordionBlockAtIndex(pendingInsertIndex);
   };
 
+  // Create a new tabs block at a specific index or at the end
+  const createTabsBlockAtIndex = (insertIndex: number | null) => {
+    setBlocks((prev) => {
+      const defaultTabsContent: TabsContent & Record<string, unknown> = {
+        title: "",
+        tabs: [
+          {
+            id: "tab-1",
+            title: "Embracing discovery",
+            content: "<p>Add your content here.</p>",
+            image: null,
+          },
+          {
+            id: "tab-2",
+            title: "Gaining insight",
+            content: "<p>Add your content here.</p>",
+            image: null,
+          },
+          {
+            id: "tab-3",
+            title: "Making it real",
+            content: "<p>Add your content here.</p>",
+            image: null,
+          },
+        ],
+        settings: {
+          style: "light",
+          allowKeyboardNav: true,
+        },
+      };
+
+      const newBlock: LessonBlock = {
+        id: crypto.randomUUID(),
+        type: "tabs",
+        orderIndex: 0, // will be recalculated
+        style: "light",
+        customBackgroundColor: undefined,
+        layout: { ...DEFAULT_BLOCK_LAYOUT },
+        metadata: { ...DEFAULT_BLOCK_METADATA },
+        content: defaultTabsContent,
+      };
+
+      let newBlocks: LessonBlock[];
+
+      if (
+        insertIndex !== null &&
+        insertIndex >= 0 &&
+        insertIndex <= prev.length
+      ) {
+        newBlocks = [
+          ...prev.slice(0, insertIndex),
+          newBlock,
+          ...prev.slice(insertIndex),
+        ];
+      } else {
+        newBlocks = [...prev, newBlock];
+      }
+
+      return newBlocks.map((block, i) => ({
+        ...block,
+        orderIndex: i,
+      }));
+    });
+
+    setIsBlockLibraryOpen(false);
+    setSelectedCategory(null);
+    setPendingInsertIndex(null);
+  };
+
+  const handleAddTabsBlock = () => {
+    createTabsBlockAtIndex(pendingInsertIndex);
+  };
+
+  // Create a new image_compare block at a specific index or at the end
+  const createImageCompareBlockAtIndex = (insertIndex: number | null) => {
+    setBlocks((prev) => {
+      const defaultCompareContent =
+        getDefaultImageCompareContent() as ImageCompareContent &
+          Record<string, unknown>;
+
+      const newBlock: LessonBlock = {
+        id: crypto.randomUUID(),
+        type: "image_compare",
+        orderIndex: 0, // will be recalculated
+        style: "light",
+        customBackgroundColor: undefined,
+        layout: { ...DEFAULT_BLOCK_LAYOUT },
+        metadata: { ...DEFAULT_BLOCK_METADATA },
+        content: defaultCompareContent,
+      };
+
+      let newBlocks: LessonBlock[];
+
+      if (
+        insertIndex !== null &&
+        insertIndex >= 0 &&
+        insertIndex <= prev.length
+      ) {
+        newBlocks = [
+          ...prev.slice(0, insertIndex),
+          newBlock,
+          ...prev.slice(insertIndex),
+        ];
+      } else {
+        newBlocks = [...prev, newBlock];
+      }
+
+      return newBlocks.map((block, i) => ({
+        ...block,
+        orderIndex: i,
+      }));
+    });
+
+    setIsBlockLibraryOpen(false);
+    setSelectedCategory(null);
+    setPendingInsertIndex(null);
+  };
+
+  const handleAddImageCompareBlock = () => {
+    createImageCompareBlockAtIndex(pendingInsertIndex);
+  };
+
   // Create a new image-centered block at a specific index or at the end
   const createImageCenteredBlockAtIndex = (insertIndex: number | null) => {
     setBlocks((prev) => {
@@ -2605,6 +2877,8 @@ const LessonBuilder: React.FC = () => {
       "flashcards",
       "sorting_activity",
       "accordion",
+      "tabs",
+      "image_compare",
     ];
 
     // Track updated block IDs (for newly inserted blocks)
@@ -2763,6 +3037,12 @@ const LessonBuilder: React.FC = () => {
         } else if (block.type === "accordion") {
           // Store accordion content (items/settings)
           blockContent = block.content as AccordionContent;
+        } else if (block.type === "tabs") {
+          // Store tabs content (tabs/settings)
+          blockContent = block.content as TabsContent;
+        } else if (block.type === "image_compare") {
+          // Store image compare content
+          blockContent = block.content as ImageCompareContent;
         }
 
         // Build the TextBlockContentJson object
@@ -3266,6 +3546,22 @@ const LessonBuilder: React.FC = () => {
                       pageId={pageId ?? null}
                     />
                   );
+                } else if (block.type === "tabs") {
+                  blockComponent = (
+                    <TabsBlock
+                      {...commonBlockProps}
+                      moduleId={moduleId ?? null}
+                      pageId={pageId ?? null}
+                    />
+                  );
+                } else if (block.type === "image_compare") {
+                  blockComponent = (
+                    <ImageCompareBlock
+                      {...commonBlockProps}
+                      moduleId={moduleId ?? null}
+                      pageId={pageId ?? null}
+                    />
+                  );
                 }
 
                 if (!blockComponent) return null;
@@ -3614,6 +3910,10 @@ const LessonBuilder: React.FC = () => {
                           handleAddSortingActivityBlock();
                         } else if (tpl.id === "accordion") {
                           handleAddAccordionBlock();
+                        } else if (tpl.id === "tabs") {
+                          handleAddTabsBlock();
+                        } else if (tpl.id === "image_compare") {
+                          handleAddImageCompareBlock();
                         }
                       }}
                       className="w-full bg-white rounded-lg border border-gray-200 hover:border-orange-500 hover:shadow-sm text-left overflow-hidden transition-all"
@@ -3681,6 +3981,29 @@ const LessonBuilder: React.FC = () => {
                                   <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 h-2 w-0.5 bg-gray-400 rounded" />
                                 </div>
                               </div>
+                            </div>
+                          </div>
+                        ) : tpl.id === "tabs" ? (
+                          <div className="w-3/4">
+                            <div className="flex gap-2 justify-center mb-2">
+                              <div className="h-2 w-10 rounded-full bg-gray-300" />
+                              <div className="h-2 w-10 rounded-full bg-gray-400" />
+                              <div className="h-2 w-10 rounded-full bg-gray-300" />
+                            </div>
+                            <div className="h-1 w-10 bg-orange-400 rounded-full mx-auto mb-2" />
+                            <div className="space-y-1">
+                              <div className="h-1.5 w-full bg-gray-300 rounded" />
+                              <div className="h-1.5 w-4/5 bg-gray-300 rounded" />
+                              <div className="h-1.5 w-3/5 bg-gray-300 rounded" />
+                            </div>
+                          </div>
+                        ) : tpl.id === "image_compare" ? (
+                          <div className="w-3/4 flex items-center justify-center">
+                            <div className="relative w-40 h-10 rounded border border-gray-300 bg-white overflow-hidden">
+                              <div className="absolute inset-0 bg-gray-200" />
+                              <div className="absolute inset-y-0 left-0 w-1/2 bg-gray-300" />
+                              <div className="absolute inset-y-0 left-1/2 w-[2px] bg-orange-400" />
+                              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-4 w-4 rounded-full border border-gray-200 bg-white shadow-sm" />
                             </div>
                           </div>
                         ) : (
@@ -4355,6 +4678,24 @@ const LessonBuilder: React.FC = () => {
                                 isPreviewMode
                                 moduleId={moduleId ?? null}
                                 pageId={pageId ?? null}
+                              />
+                            )}
+
+                            {/* Tabs */}
+                            {block.type === "tabs" && moduleId && (
+                              <TabsLearner
+                                content={block.content as TabsContent}
+                                blockId={block.id}
+                                moduleId={moduleId}
+                                lessonId={pageId ?? undefined}
+                              />
+                            )}
+
+                            {/* Image Compare */}
+                            {block.type === "image_compare" && (
+                              <ImageCompareLearner
+                                blockId={block.id}
+                                content={block.content as ImageCompareContent}
                               />
                             )}
                           </div>

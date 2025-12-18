@@ -711,6 +711,7 @@ export const BlockMetadataPopover: React.FC<BlockMetadataPopoverProps> = ({
       "flashcards",
       "sorting_activity",
       "accordion",
+      "tabs",
     ],
     []
   );
